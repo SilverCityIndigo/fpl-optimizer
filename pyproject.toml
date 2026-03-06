@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fpl-optimizer"
+version = "0.1.0"
+description = "Fantasy Premier League squad optimizer and points prediction engine"
+requires-python = ">=3.10"
+dependencies = [
+    "requests>=2.31.0",
+    "pandas>=2.0.0",
+    "pulp>=2.7.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-mock>=3.11.0",
+]
+
+[project.scripts]
+fpl-optimizer = "fpl_optimizer.cli:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
