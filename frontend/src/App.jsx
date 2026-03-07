@@ -12,7 +12,10 @@ export default function App() {
   return (
     <div style={{ minHeight: '100vh', background: '#0e1117', color: '#fff', fontFamily: 'sans-serif' }}>
       <nav style={{ background: '#1a1f2e', padding: '12px 24px', display: 'flex', gap: '16px', alignItems: 'center' }}>
-        <span style={{ fontWeight: 'bold', fontSize: '18px', color: '#00ff87', marginRight: '24px' }}>⚽ FPL Analyzer</span>
+        <div style={{ marginRight: '24px', display: 'flex', flexDirection: 'column', gap: '1px' }}>
+          <span style={{ fontWeight: 'bold', fontSize: '18px', color: '#00ff87', lineHeight: '1' }}>⚽ FPL Analyzer</span>
+          <span style={{ fontSize: '10px', color: '#555', lineHeight: '1' }}>by SilverCityIndigo</span>
+        </div>
         <button onClick={() => setPage('players')} style={navBtn(page === 'players')}>Players</button>
         <button onClick={() => setPage('transfers')} style={navBtn(page === 'transfers')}>Transfers</button>
         <button onClick={() => setPage('captain')} style={navBtn(page === 'captain')}>⚡ Captain</button>
