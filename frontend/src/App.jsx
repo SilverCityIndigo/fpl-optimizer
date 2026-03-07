@@ -14,7 +14,7 @@ export default function App() {
       <nav style={{ background: '#1a1f2e', padding: '12px 24px', display: 'flex', gap: '16px', alignItems: 'center' }}>
         <div style={{ marginRight: '24px', display: 'flex', flexDirection: 'column', gap: '1px' }}>
           <span style={{ fontWeight: 'bold', fontSize: '18px', color: '#00ff87', lineHeight: '1' }}>⚽ FPL Analyzer</span>
-          <span style={{ fontSize: '10px', color: '#555', lineHeight: '1' }}>by SilverCityIndigo</span>
+          <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.45)', lineHeight: '1' }}>by SilverCityIndigo</span>
         </div>
         <button onClick={() => setPage('players')} style={navBtn(page === 'players')}>Players</button>
         <button onClick={() => setPage('transfers')} style={navBtn(page === 'transfers')}>Transfers</button>

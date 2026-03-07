@@ -121,7 +121,7 @@ function PlayerCard({ p }) {
           </span>
         </div>
 
-        <div style={{ marginTop: '8px', fontSize: '11px', color: '#666' }}>
+        <div style={{ marginTop: '8px', fontSize: '11px', color: '#fff', fontWeight: 'bold' }}>
           {p.selected_by_percent}% selected
         </div>
       </div>
@@ -229,7 +229,7 @@ export default function Players() {
                     <td style={{ padding: '10px 12px', borderBottom: '1px solid #1a1f2e', color: p.status !== 'a' ? '#ff8800' : form.color }}>
                       {p.status !== 'a' ? '🤕 Injured' : form.label}
                     </td>
-                    <td style={{ padding: '10px 12px', borderBottom: '1px solid #1a1f2e', color: '#aaa' }}>{p.selected_by_percent}%</td>
+                    <td style={{ padding: '10px 12px', borderBottom: '1px solid #1a1f2e', color: '#fff', fontWeight: 'bold' }}>{p.selected_by_percent}%</td>
                   </tr>
                 )
               })}
