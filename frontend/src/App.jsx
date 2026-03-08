@@ -4,6 +4,7 @@ import Transfers from './pages/Transfers'
 import Captain from './pages/Captain'
 import Differentials from './pages/Differentials'
 import PriceChanges from './pages/PriceChanges'
+import ChipAdvisor from './pages/ChipAdvisor'
 import './index.css'
 
 export default function App() {
@@ -21,6 +22,7 @@ export default function App() {
         <button onClick={() => setPage('captain')} style={navBtn(page === 'captain')}>⚡ Captain</button>
         <button onClick={() => setPage('differentials')} style={navBtn(page === 'differentials')}>🔍 Scout</button>
         <button onClick={() => setPage('pricechanges')} style={navBtn(page === 'pricechanges')}>💰 Prices</button>
+        <button onClick={() => setPage('chips')} style={navBtn(page === 'chips')}>🃏 Chips</button>
         <div style={{ marginLeft: 'auto' }}>
           <a href="https://github.com/SilverCityIndigo" target="_blank" rel="noreferrer"
             style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'rgba(255,255,255,0.6)', textDecoration: 'none', fontSize: '13px', transition: 'color 0.15s' }}
@@ -39,6 +41,7 @@ export default function App() {
         {page === 'captain' && <Captain />}
         {page === 'differentials' && <Differentials />}
         {page === 'pricechanges' && <PriceChanges />}
+        {page === 'chips' && <ChipAdvisor />}
       </div>
     </div>
   )
