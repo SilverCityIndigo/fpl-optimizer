@@ -25,6 +25,8 @@ export default function Transfers() {
       if (res.data.error) { setError(res.data.error); setLoading(false); return }
       setSquad(res.data.players)
       setSquadIds(res.data.player_ids)
+      if (res.data.bank !== undefined) setBudgetItb(res.data.bank)
+      if (res.data.transfers_left !== undefined) setFreeTransfers(res.data.transfers_left)
       setStep(2)
     } catch {
       setError('Failed to fetch team. Make sure your team ID is correct.')
@@ -126,9 +128,12 @@ export default function Transfers() {
             <div>
               <label style={{ color: '#aaa', fontSize: '13px', display: 'block', marginBottom: '4px' }}>Free transfers</label>
               <select value={freeTransfers} onChange={e => setFreeTransfers(parseInt(e.target.value))}
-                style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #2a2f3e', background: '#0e1117', color: '#fff' }}>
-                <option value={1}>1</option>
-                <option value={2}>2</option>
+              style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #2a2f3e', background: '#0e1117', color: '#fff' }}>
+              <option value={1}>1</option>
+              <option value={2}>2</option>
+              <option value={3}>3</option>
+              <option value={4}>4</option>
+              <option value={5}>5</option>
               </select>
             </div>
           </div>

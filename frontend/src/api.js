@@ -21,8 +21,6 @@ export const getTransferSuggestions = (squadIds, budgetItb, freeTransfers) =>
     free_transfers: freeTransfers
   })
 
-export default api
-
 export const getHitAnalysis = (squadIds, budgetItb, freeTransfers) =>
   api.post('/api/optimizer/hit-analysis', {
     current_squad_ids: squadIds,
@@ -30,9 +28,11 @@ export const getHitAnalysis = (squadIds, budgetItb, freeTransfers) =>
     free_transfers: freeTransfers
   })
 
-  export const getCaptainPick = (squadIds) =>
+export const getCaptainPick = (squadIds) =>
   api.post('/api/optimizer/captain', {
     current_squad_ids: squadIds
   })
 
-  export const getPriceChanges = () => api.get('/api/players/price-changes')
+export const getPriceChanges = () => api.get('/api/players/price-changes')
+
+export default api
