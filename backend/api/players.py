@@ -196,7 +196,6 @@ def get_team_squad(team_id: int):
     except Exception as e:
         return {"error": str(e)}
 
-
 @router.get("/price-changes")
 def get_price_changes():
     conn = sqlite3.connect(DB_PATH)
@@ -235,7 +234,6 @@ def get_price_changes():
         transfers_out = p["transfers_out_event"] or 0
         ownership = float(p["selected_by_percent"] or 0)
 
-        # Filter for relevance: meaningful transfer volume + ownership
         is_rising_relevant = transfers_in >= 5000
         is_falling_relevant = transfers_out >= 5000 and ownership >= 1.0
 
