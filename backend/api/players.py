@@ -177,8 +177,14 @@ def get_team_squad(team_id: int):
         if r.status_code != 200:
             return {"error": f"Could not fetch team (status {r.status_code}). Check your team ID."}
 
-        picks = r.json()["picks"]
+        data = r.json()
+        picks = data["picks"]
         player_ids = [p["element"] for p in picks]
+
+        # Auto-detect budget and free transfers
+        bank = round(data.get("entry_history", {}).get("bank", 0) / 10, 1)
+        transfers_made = data.get("entry_history", {}).get("event_transfers", 0)
+        transfers_left = max(1, 2 - transfers_made)  # FPL max accrual is 2
 
         conn = get_db()
         c = conn.cursor()
@@ -192,7 +198,12 @@ def get_team_squad(team_id: int):
         """, player_ids)
         players = [dict(row) for row in c.fetchall()]
         conn.close()
-        return {"players": players, "player_ids": player_ids}
+        return {
+            "players": players,
+            "player_ids": player_ids,
+            "bank": bank,
+            "transfers_left": transfers_left
+        }
     except Exception as e:
         return {"error": str(e)}
 
