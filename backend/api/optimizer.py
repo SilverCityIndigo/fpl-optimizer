@@ -2,6 +2,18 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 from services.optimizer import optimize_squad, suggest_transfers, suggest_captain
 
+# Add to imports at top
+from services.optimizer import optimize_squad, suggest_transfers, suggest_captain, analyze_chips
+
+# Add new request model
+class ChipRequest(BaseModel):
+    current_squad_ids: list[int]
+
+# Add new endpoint
+@router.post("/chips")
+def get_chip_advice(req: ChipRequest):
+    return analyze_chips(current_squad_ids=req.current_squad_ids)
+
 router = APIRouter()
 
 class TransferRequest(BaseModel):

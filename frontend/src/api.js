@@ -35,4 +35,8 @@ export const getCaptainPick = (squadIds) =>
 
 export const getPriceChanges = () => api.get('/api/players/price-changes')
 
+export const getChipAdvice = (squadIds) =>
+  api.post('/api/optimizer/chips', { current_squad_ids: squadIds })
+
 export default api
+
