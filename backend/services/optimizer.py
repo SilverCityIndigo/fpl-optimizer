@@ -41,6 +41,19 @@ def get_players_for_optimization(db_path: str = "fpl.db", gw_lookback: int = 6):
 
     players = [dict(zip(columns, row)) for row in c.fetchall()]
 
+    # Fetch next fixture FDR for each team
+    c.execute("""
+        SELECT team_h, team_a, team_h_difficulty, team_a_difficulty
+        FROM fixtures
+        WHERE gameweek = (SELECT id FROM gameweeks WHERE is_next = 1 LIMIT 1)
+    """)
+    fdr_map = {}
+    for team_h, team_a, fdh, fda in c.fetchall():
+        fdr_map[team_h] = fdh
+        fdr_map[team_a] = fda
+
+    fdr_multipliers = {1: 1.20, 2: 1.10, 3: 1.00, 4: 0.90, 5: 0.80}
+
     for p in players:
         c.execute("""
             SELECT total_points, gameweek
@@ -62,6 +75,11 @@ def get_players_for_optimization(db_path: str = "fpl.db", gw_lookback: int = 6):
         chance = p["chance_of_playing"]
         if chance is not None and chance < 100:
             p["projected_points"] *= (chance / 100.0)
+
+        # Apply fixture difficulty multiplier
+        fdr = fdr_map.get(p["team_id"], 3)
+        p["projected_points"] *= fdr_multipliers.get(fdr, 1.0)
+        p["fdr"] = fdr
 
     conn.close()
     return players
