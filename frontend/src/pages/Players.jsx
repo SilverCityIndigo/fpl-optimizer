@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { getPlayers } from '../api'
+import { getPlayers, getSparklines } from '../api'
 
 const POSITIONS = ['All', 'GKP', 'DEF', 'MID', 'FWD']
 
@@ -43,7 +43,41 @@ function formBadge(form) {
   return { label: '💀 Terrible', color: '#ff4444' }
 }
 
-function PlayerCard({ p }) {
+function Sparkline({ data }) {
+  if (!data || data.length < 2) return null
+  const w = 120, h = 32, pad = 2
+  const max = Math.max(...data, 1)
+  const min = Math.min(...data, 0)
+  const range = max - min || 1
+  const points = data.map((v, i) => {
+    const x = pad + (i / (data.length - 1)) * (w - pad * 2)
+    const y = pad + (1 - (v - min) / range) * (h - pad * 2)
+    return `${x},${y}`
+  })
+  const last = data[data.length - 1]
+  const prev = data[data.length - 2]
+  const color = last >= prev ? '#00ff87' : '#ff4444'
+
+  return (
+    <svg width={w} height={h} style={{ display: 'block', margin: '0 auto' }}>
+      <polyline
+        points={points.join(' ')}
+        fill="none"
+        stroke={color}
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      {data.map((v, i) => {
+        const x = pad + (i / (data.length - 1)) * (w - pad * 2)
+        const y = pad + (1 - (v - min) / range) * (h - pad * 2)
+        return <circle key={i} cx={x} cy={y} r="2.5" fill={i === data.length - 1 ? color : '#555'} />
+      })}
+    </svg>
+  )
+}
+
+function PlayerCard({ p, sparkData }) {
   const val = valueRating(p)
   const form = formBadge(p.form)
   const photoUrl = p.code
@@ -112,6 +146,13 @@ function PlayerCard({ p }) {
           ))}
         </div>
 
+        {sparkData && sparkData.length > 0 && (
+          <div style={{ background: '#0e1117', borderRadius: '6px', padding: '6px 8px', marginBottom: '10px' }}>
+            <div style={{ color: '#aaa', fontSize: '10px', marginBottom: '4px', textAlign: 'center' }}>Last {sparkData.length} GWs</div>
+            <Sparkline data={sparkData} />
+          </div>
+        )}
+
         <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
           <span style={{ fontSize: '11px', padding: '3px 8px', borderRadius: '4px', background: '#0e1117', color: val.color, fontWeight: 'bold' }}>
             {val.label}
@@ -136,6 +177,13 @@ export default function Players() {
   const [sortBy, setSortBy] = useState('total_points')
   const [search, setSearch] = useState('')
   const [view, setView] = useState('cards')
+  const [sparklines, setSparklines] = useState({})
+
+  useEffect(() => {
+    getSparklines()
+      .then(res => setSparklines(res.data))
+      .catch(() => {})
+  }, [])
 
   useEffect(() => {
     setLoading(true)
@@ -191,7 +239,7 @@ export default function Players() {
       ) : view === 'cards' ? (
         <>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '16px' }}>
-            {filtered.map(p => <PlayerCard key={p.id} p={p} />)}
+            {filtered.map(p => <PlayerCard key={p.id} p={p} sparkData={sparklines[p.id]} />)}
           </div>
           <p style={{ color: '#aaa', marginTop: '16px', fontSize: '13px' }}>{filtered.length} players shown</p>
         </>

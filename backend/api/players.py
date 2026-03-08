@@ -145,6 +145,26 @@ def get_differentials():
 
     return result
 
+@router.get("/sparklines")
+def get_sparklines():
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("""
+        SELECT player_id, gameweek, total_points
+        FROM player_gameweek_history
+        WHERE gameweek >= (SELECT MAX(gameweek) - 5 FROM player_gameweek_history)
+        ORDER BY player_id, gameweek ASC
+    """)
+    rows = c.fetchall()
+    conn.close()
+    result = {}
+    for row in rows:
+        pid = row["player_id"]
+        if pid not in result:
+            result[pid] = []
+        result[pid].append(row["total_points"])
+    return result
+
 @router.get("/{player_id}/history")
 def get_player_history(player_id: int):
     conn = get_db()

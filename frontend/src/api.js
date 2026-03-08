@@ -36,3 +36,4 @@ export const getHitAnalysis = (squadIds, budgetItb, freeTransfers) =>
   })
 
   export const getPriceChanges = () => api.get('/api/players/price-changes')
+export const getSparklines = () => api.get('/api/players/sparklines')
