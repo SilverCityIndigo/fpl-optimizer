@@ -12,17 +12,20 @@ export default function App() {
 
   return (
     <div style={{ minHeight: '100vh', background: '#0e1117', color: '#fff', fontFamily: 'sans-serif' }}>
-      <nav style={{ background: '#1a1f2e', padding: '12px 24px', display: 'flex', gap: '16px', alignItems: 'center' }}>
-        <div style={{ marginRight: '24px', display: 'flex', flexDirection: 'column', gap: '1px' }}>
-          <span style={{ fontWeight: 'bold', fontSize: '18px', color: '#00ff87', lineHeight: '1' }}>⚽ FPL Analyzer</span>
+      <nav style={{ background: '#1a1f2e', padding: '12px 24px', display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+        <div style={{ marginRight: '16px', display: 'flex', flexDirection: 'column', gap: '1px' }}>
+          <span style={{ fontWeight: 'bold', fontSize: '18px', color: '#00ff87', lineHeight: '1' }}>⚽ FPL Lab</span>
           <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.85)', lineHeight: '1', fontWeight: 'bold' }}>by SilverCityIndigo</span>
         </div>
-        <button onClick={() => setPage('players')} style={navBtn(page === 'players')}>Players</button>
-        <button onClick={() => setPage('transfers')} style={navBtn(page === 'transfers')}>Transfers</button>
-        <button onClick={() => setPage('captain')} style={navBtn(page === 'captain')}>⚡ Captain</button>
+
+        {/* Nav order: Players, Transfers, Captain, Chips, Scout, Prices */}
+        <button onClick={() => setPage('players')}      style={navBtn(page === 'players')}>      👤 Players</button>
+        <button onClick={() => setPage('transfers')}    style={navBtn(page === 'transfers')}>    🔄 Transfers</button>
+        <button onClick={() => setPage('captain')}      style={navBtn(page === 'captain')}>      ⚡ Captain</button>
+        <button onClick={() => setPage('chips')}        style={navBtn(page === 'chips')}>        🃏 Chips</button>
         <button onClick={() => setPage('differentials')} style={navBtn(page === 'differentials')}>🔍 Scout</button>
-        <button onClick={() => setPage('pricechanges')} style={navBtn(page === 'pricechanges')}>💰 Prices</button>
-        <button onClick={() => setPage('chips')} style={navBtn(page === 'chips')}>🃏 Chips</button>
+        <button onClick={() => setPage('pricechanges')} style={navBtn(page === 'pricechanges')}> 💰 Prices</button>
+
         <div style={{ marginLeft: 'auto' }}>
           <a href="https://github.com/SilverCityIndigo" target="_blank" rel="noreferrer"
             style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'rgba(255,255,255,0.6)', textDecoration: 'none', fontSize: '13px', transition: 'color 0.15s' }}
@@ -35,13 +38,14 @@ export default function App() {
           </a>
         </div>
       </nav>
+
       <div style={{ padding: '24px' }}>
-        {page === 'players' && <Players />}
-        {page === 'transfers' && <Transfers />}
-        {page === 'captain' && <Captain />}
+        {page === 'players'       && <Players />}
+        {page === 'transfers'     && <Transfers />}
+        {page === 'captain'       && <Captain />}
         {page === 'differentials' && <Differentials />}
-        {page === 'pricechanges' && <PriceChanges />}
-        {page === 'chips' && <ChipAdvisor />}
+        {page === 'pricechanges'  && <PriceChanges />}
+        {page === 'chips'         && <ChipAdvisor />}
       </div>
     </div>
   )
@@ -53,8 +57,10 @@ function navBtn(active) {
     color: active ? '#000' : '#fff',
     border: '1px solid #00ff87',
     borderRadius: '6px',
-    padding: '6px 16px',
+    padding: '6px 14px',
     cursor: 'pointer',
-    fontWeight: active ? 'bold' : 'normal'
+    fontWeight: active ? 'bold' : 'normal',
+    fontSize: '14px',
+    whiteSpace: 'nowrap'
   }
 }

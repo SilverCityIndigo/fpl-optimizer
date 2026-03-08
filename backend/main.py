@@ -5,10 +5,17 @@ from api import players, optimizer, gameweek
 app = FastAPI(title="FPL Analyzer API", version="1.0.0")
 
 from apscheduler.schedulers.background import BackgroundScheduler
-from data.fpl_fetcher import sync_bootstrap
+from data.fpl_fetcher import sync_bootstrap, sync_xg
+
+def bootstrap_sync():
+    sync_bootstrap()
+
+def xg_sync():
+    sync_xg()
 
 scheduler = BackgroundScheduler()
-scheduler.add_job(sync_bootstrap, "interval", hours=2)  # adjust interval as needed
+scheduler.add_job(bootstrap_sync, "interval", hours=2)   # transfer counts, form, prices
+scheduler.add_job(xg_sync,        "interval", hours=24)  # xG data — daily is enough
 scheduler.start()
 
 app.add_middleware(
