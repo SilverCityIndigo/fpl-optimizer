@@ -2,6 +2,10 @@
 FPL Squad Optimizer
 Uses linear programming (PuLP) to find the mathematically optimal squad
 given a budget and positional constraints — pure FPL points maximization.
+
+xG blending: for MID/FWD with 450+ minutes, projected_points is a weighted
+blend of exponential-decay form (65%) and xGI/90 signal (35%).
+GKPs and DEFs always use pure form — their xG signal is too sparse.
 """
 
 import sqlite3
@@ -14,6 +18,7 @@ def get_players_for_optimization(db_path: str = "fpl.db", gw_lookback: int = 6):
     conn = sqlite3.connect(db_path)
     c = conn.cursor()
 
+    # Now includes xg_per90, xa_per90, xgi_per90
     c.execute("""
         SELECT
             p.id,
@@ -28,7 +33,10 @@ def get_players_for_optimization(db_path: str = "fpl.db", gw_lookback: int = 6):
             p.minutes,
             p.status,
             p.chance_of_playing_next_round,
-            t.short_name as team_name
+            t.short_name as team_name,
+            COALESCE(p.xg_per90,  0.0) as xg_per90,
+            COALESCE(p.xa_per90,  0.0) as xa_per90,
+            COALESCE(p.xgi_per90, 0.0) as xgi_per90
         FROM players p
         JOIN teams t ON p.team_id = t.id
         WHERE p.status != 'u'
@@ -37,7 +45,8 @@ def get_players_for_optimization(db_path: str = "fpl.db", gw_lookback: int = 6):
 
     columns = ["id", "code", "web_name", "team_id", "position", "price",
                "total_points", "points_per_game", "form", "minutes",
-               "status", "chance_of_playing", "team_name"]
+               "status", "chance_of_playing", "team_name",
+               "xg_per90", "xa_per90", "xgi_per90"]
 
     players = [dict(zip(columns, row)) for row in c.fetchall()]
 
@@ -55,6 +64,7 @@ def get_players_for_optimization(db_path: str = "fpl.db", gw_lookback: int = 6):
     fdr_multipliers = {1: 1.20, 2: 1.10, 3: 1.00, 4: 0.90, 5: 0.80}
 
     for p in players:
+        # ── Step 1: exponential-decay form score (existing logic) ──────────
         c.execute("""
             SELECT total_points, gameweek
             FROM player_gameweek_history
@@ -68,21 +78,62 @@ def get_players_for_optimization(db_path: str = "fpl.db", gw_lookback: int = 6):
             weights = [0.9 ** i for i in range(len(history))]
             weighted_pts = sum(h[0] * w for h, w in zip(history, weights))
             total_weight = sum(weights)
-            p["projected_points"] = weighted_pts / total_weight
+            decay_score = weighted_pts / total_weight
         else:
-            p["projected_points"] = p["points_per_game"]
+            decay_score = p["points_per_game"]
 
+        # ── Step 2: blend in xGI/90 for attacking players ─────────────────
+        p["projected_points"] = _blend_xg(p, decay_score)
+
+        # ── Step 3: injury/availability discount ──────────────────────────
         chance = p["chance_of_playing"]
         if chance is not None and chance < 100:
             p["projected_points"] *= (chance / 100.0)
 
-        # Apply fixture difficulty multiplier
+        # ── Step 4: fixture difficulty multiplier ─────────────────────────
         fdr = fdr_map.get(p["team_id"], 3)
         p["projected_points"] *= fdr_multipliers.get(fdr, 1.0)
         p["fdr"] = fdr
 
     conn.close()
     return players
+
+
+def _blend_xg(player: dict, decay_score: float, xgi_weight: float = 0.35) -> float:
+    """
+    Blend exponential-decay form with xGI/90 for a more stable projection.
+
+    Rules:
+    - Only applied to MID (position=3 in FPL, stored as "MID") and FWD
+    - Player must have 450+ minutes for xG signal to be meaningful
+    - If no xG data (xgi_per90 == 0), falls back to pure decay_score
+    - GKP and DEF always use pure decay_score
+
+    Scaling logic:
+    - A MID scoring 0.4 xGI/90 → ~1 goal or 2 assists per 5 games
+      → roughly 5 FPL pts per goal * 0.4 = 2.0 pts/game from xGI alone
+    - We use pts_per_xgi to convert the xGI/90 rate into an approximate
+      FPL points-per-game equivalent, then blend at 35% weight.
+    """
+    position  = player.get("position", "")
+    minutes   = float(player.get("minutes") or 0)
+    xgi_per90 = float(player.get("xgi_per90") or 0)
+
+    use_xg = (
+        position in ("MID", "FWD")
+        and minutes >= 450
+        and xgi_per90 > 0
+    )
+
+    if not use_xg:
+        return round(decay_score, 3)
+
+    # Conservative FPL points per unit of xGI/90
+    pts_per_xgi = 5.0 if position == "MID" else 4.5  # MID goal = 5pts, FWD = 4pts
+    xg_signal = xgi_per90 * pts_per_xgi
+
+    blended = (1 - xgi_weight) * decay_score + xgi_weight * xg_signal
+    return round(blended, 3)
 
 
 def optimize_squad(
@@ -180,8 +231,14 @@ def suggest_transfers(
             gain = buy_player["projected_points"] - sell_player["projected_points"]
             if gain > 0:
                 transfer_suggestions.append({
-                    "sell": sell_player,
-                    "buy": buy_player,
+                    "sell": {**sell_player,
+                             "xg_per90":  sell_player.get("xg_per90", 0),
+                             "xa_per90":  sell_player.get("xa_per90", 0),
+                             "xgi_per90": sell_player.get("xgi_per90", 0)},
+                    "buy":  {**buy_player,
+                             "xg_per90":  buy_player.get("xg_per90", 0),
+                             "xa_per90":  buy_player.get("xa_per90", 0),
+                             "xgi_per90": buy_player.get("xgi_per90", 0)},
                     "points_gain": round(gain, 2),
                     "cost_diff": round(buy_player["price"] - sell_price, 1)
                 })
@@ -206,8 +263,8 @@ def suggest_captain(current_squad_ids: list[int], db_path: str = "fpl.db"):
     conn.close()
 
     fdr_map = {}
-    fixture_map = {}  # team_id → fixture string
-    
+    fixture_map = {}
+
     conn2 = sqlite3.connect(db_path)
     c2 = conn2.cursor()
     c2.execute("SELECT id, short_name FROM teams")
@@ -327,6 +384,7 @@ def analyze_hit_worthiness(
         ]
     }
 
+
 def analyze_chips(
     current_squad_ids: list[int],
     db_path: str = "fpl.db"
@@ -337,7 +395,6 @@ def analyze_chips(
     conn = sqlite3.connect(db_path)
     c = conn.cursor()
 
-    # Get next 5 GW FDR for each team
     c.execute("SELECT id FROM gameweeks WHERE is_next = 1 LIMIT 1")
     next_gw_row = c.fetchone()
     if not next_gw_row:
@@ -352,7 +409,6 @@ def analyze_chips(
     fixtures = c.fetchall()
     conn.close()
 
-    # Build FDR map per team per GW
     fdr_by_team = {}
     for team_h, team_a, fdh, fda, gw in fixtures:
         if team_h not in fdr_by_team:
@@ -366,8 +422,6 @@ def analyze_chips(
     if not squad:
         return {"error": "Squad not found"}
 
-    # Sort by projected points to identify starting 11 and bench
-    # Use position rules: 1 GKP, 3+ DEF, 2+ MID, 1+ FWD
     gkps = sorted([p for p in squad if p["position"] == "GKP"], key=lambda x: -x["projected_points"])
     outfield = sorted([p for p in squad if p["position"] != "GKP"], key=lambda x: -x["projected_points"])
 
@@ -377,24 +431,18 @@ def analyze_chips(
     avg_starting_pts = sum(p["projected_points"] for p in starting_11) / len(starting_11) if starting_11 else 0
     avg_bench_pts = sum(p["projected_points"] for p in bench) / len(bench) if bench else 0
 
-    # Next GW FDR for squad
     squad_fdrs = [fdr_by_team.get(p["team_id"], [3])[0] for p in starting_11]
     avg_fdr_next = sum(squad_fdrs) / len(squad_fdrs) if squad_fdrs else 3
 
-    # 5 GW average FDR
     squad_avg_fdrs_5gw = []
     for p in starting_11:
         fdrs = fdr_by_team.get(p["team_id"], [3, 3, 3, 3, 3])
         squad_avg_fdrs_5gw.append(sum(fdrs) / len(fdrs))
     avg_fdr_5gw = sum(squad_avg_fdrs_5gw) / len(squad_avg_fdrs_5gw) if squad_avg_fdrs_5gw else 3
 
-    # Captain candidate
     captain_options = suggest_captain(current_squad_ids, db_path)
     top_captain = captain_options[0] if captain_options else None
 
-    # --- Chip recommendations ---
-
-    # TRIPLE CAPTAIN
     tc_score = top_captain["captain_score"] if top_captain else 0
     tc_fdr = top_captain.get("fdr", 3) if top_captain else 3
     tc_recommended = tc_score >= 8 and tc_fdr <= 2
@@ -407,7 +455,6 @@ def analyze_chips(
         f"has a score of {round(tc_score,1)} — not exceptional enough to triple up."
     )
 
-    # BENCH BOOST
     bb_recommended = avg_bench_pts >= 4.5
     bb_reason = (
         f"✅ Your bench averages {round(avg_bench_pts,1)} projected pts — strong enough to boost. "
@@ -417,7 +464,6 @@ def analyze_chips(
         f"Not worth activating Bench Boost with this bench quality."
     )
 
-    # WILDCARD
     wc_recommended = avg_starting_pts < 5.0 and avg_fdr_5gw <= 2.8
     wc_reason = (
         f"✅ Your starting 11 averages {round(avg_starting_pts,1)} projected pts — below optimal. "
@@ -427,7 +473,6 @@ def analyze_chips(
         f"and upcoming FDR is {round(avg_fdr_5gw,1)} — not compelling enough to burn your wildcard."
     )
 
-    # FREE HIT
     fh_recommended = avg_fdr_next >= 3.8
     fh_reason = (
         f"✅ Your squad faces a tough average FDR of {round(avg_fdr_next,1)} this gameweek. "

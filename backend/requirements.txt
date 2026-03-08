@@ -2,4 +2,8 @@ fastapi
 uvicorn
 requests
 pulp
-pydantic    
+pydantic
+apscheduler==3.10.4
+understatapi==0.7.1
+rapidfuzz==3.6.1
+

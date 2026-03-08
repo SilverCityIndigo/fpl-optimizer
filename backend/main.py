@@ -4,6 +4,13 @@ from api import players, optimizer, gameweek
 
 app = FastAPI(title="FPL Analyzer API", version="1.0.0")
 
+from apscheduler.schedulers.background import BackgroundScheduler
+from data.fpl_fetcher import sync_bootstrap
+
+scheduler = BackgroundScheduler()
+scheduler.add_job(sync_bootstrap, "interval", hours=2)  # adjust interval as needed
+scheduler.start()
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[

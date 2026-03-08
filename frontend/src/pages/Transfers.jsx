@@ -1,6 +1,46 @@
 import { useState } from 'react'
 import { getTeamSquad, getTransferSuggestions, getHitAnalysis } from '../api' 
 
+function XGStats({ player }) {
+  const xgi = parseFloat(player.xgi_per90 || 0)
+  const xg  = parseFloat(player.xg_per90  || 0)
+  const xa  = parseFloat(player.xa_per90  || 0)
+
+  // Don't show for GKPs/DEFs or players with no data
+  if (!xgi || player.position === 'GKP' || player.position === 'DEF') return null
+
+  const color = xgi >= 0.6 ? '#00ff87' : xgi >= 0.35 ? '#ffd700' : '#ff8800'
+  const fmt = v => v.toFixed(2)
+
+  return (
+    <div style={{ marginTop: '8px' }}>
+      <div style={{ color: '#aaa', fontSize: '10px', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+        xG Stats / 90
+      </div>
+      <div style={{ display: 'flex', gap: '6px' }}>
+        {[['xG', xg], ['xA', xa], ['xGI', xgi]].map(([label, val]) => (
+          <div key={label} style={{
+            background: '#0e1117',
+            border: `1px solid ${label === 'xGI' ? color + '55' : '#2a2f3e'}`,
+            borderRadius: '5px',
+            padding: '4px 8px',
+            textAlign: 'center',
+            minWidth: '44px'
+          }}>
+            <div style={{ color: label === 'xGI' ? color : '#fff', fontWeight: 'bold', fontSize: '13px' }}>
+              {fmt(val)}
+            </div>
+            <div style={{ color: '#6b7280', fontSize: '10px' }}>{label}</div>
+          </div>
+        ))}
+      </div>
+      <div style={{ color: '#6b7280', fontSize: '10px', marginTop: '3px' }}>
+        {xgi > 0 ? '⚡ xGI blended into projection' : ''}
+      </div>
+    </div>
+  )
+}
+
 export default function Transfers() {
   const [teamId, setTeamId] = useState('')
   const [budgetItb, setBudgetItb] = useState(0)
@@ -35,21 +75,21 @@ export default function Transfers() {
   }
 
   async function fetchSuggestions() {
-  setLoading(true)
-  setError('')
-  try {
-    const [transferRes, hitRes] = await Promise.all([
-      getTransferSuggestions(squadIds, budgetItb, freeTransfers),
-      getHitAnalysis(squadIds, budgetItb, freeTransfers)
-    ])
-    setSuggestions(transferRes.data)
-    setHitAnalysis(hitRes.data)
-    setStep(3)
-  } catch {
-    setError('Failed to get suggestions.')
+    setLoading(true)
+    setError('')
+    try {
+      const [transferRes, hitRes] = await Promise.all([
+        getTransferSuggestions(squadIds, budgetItb, freeTransfers),
+        getHitAnalysis(squadIds, budgetItb, freeTransfers)
+      ])
+      setSuggestions(transferRes.data)
+      setHitAnalysis(hitRes.data)
+      setStep(3)
+    } catch {
+      setError('Failed to get suggestions.')
+    }
+    setLoading(false)
   }
-  setLoading(false)
-}
 
   function getValueColor(val) {
     if (val > 1.5) return '#00ff87'
@@ -149,47 +189,49 @@ export default function Transfers() {
       {step >= 3 && suggestions.length > 0 && (
         <div style={{ background: '#1a1f2e', borderRadius: '8px', padding: '20px' }}>
           <h3 style={{ marginBottom: '16px', fontSize: '15px' }}>Step 3: Recommended Transfers</h3>
+
           {/* Hit Analysis Banner */}
-{hitAnalysis && (
-  <div style={{
-    background: hitAnalysis.take_hit ? '#0d2b1a' : '#2b0d0d',
-    border: `1px solid ${hitAnalysis.take_hit ? '#00ff87' : '#ff4444'}`,
-    borderRadius: '8px', padding: '20px', marginBottom: '20px'
-  }}>
-    <h3 style={{ color: hitAnalysis.take_hit ? '#00ff87' : '#ff4444', marginBottom: '12px' }}>
-      {hitAnalysis.take_hit ? '✅ Recommendation: Take the -4 Hit' : '❌ Recommendation: No Hit Needed'}
-    </h3>
-    <p style={{ color: '#fff', marginBottom: '16px', fontSize: '15px' }}>{hitAnalysis.recommendation}</p>
+          {hitAnalysis && (
+            <div style={{
+              background: hitAnalysis.take_hit ? '#0d2b1a' : '#2b0d0d',
+              border: `1px solid ${hitAnalysis.take_hit ? '#00ff87' : '#ff4444'}`,
+              borderRadius: '8px', padding: '20px', marginBottom: '20px'
+            }}>
+              <h3 style={{ color: hitAnalysis.take_hit ? '#00ff87' : '#ff4444', marginBottom: '12px' }}>
+                {hitAnalysis.take_hit ? '✅ Recommendation: Take the -4 Hit' : '❌ Recommendation: No Hit Needed'}
+              </h3>
+              <p style={{ color: '#fff', marginBottom: '16px', fontSize: '15px' }}>{hitAnalysis.recommendation}</p>
 
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', marginBottom: '16px' }}>
-      {[
-        ['Best 1 Transfer', `+${hitAnalysis.gain_1_transfer} pts`, '#ffd700'],
-        ['Best 2 Transfers', `+${hitAnalysis.gain_2_transfers} pts`, '#ffd700'],
-        ['2 Transfers - Hit', `+${hitAnalysis.gain_2_after_hit} pts`, hitAnalysis.take_hit ? '#00ff87' : '#ff4444']
-      ].map(([label, value, color]) => (
-        <div key={label} style={{ background: '#0e1117', borderRadius: '6px', padding: '12px', textAlign: 'center' }}>
-          <div style={{ color: '#aaa', fontSize: '12px', marginBottom: '4px' }}>{label}</div>
-          <div style={{ color, fontSize: '22px', fontWeight: 'bold' }}>{value}</div>
-        </div>
-      ))}
-    </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', marginBottom: '16px' }}>
+                {[
+                  ['Best 1 Transfer', `+${hitAnalysis.gain_1_transfer} pts`, '#ffd700'],
+                  ['Best 2 Transfers', `+${hitAnalysis.gain_2_transfers} pts`, '#ffd700'],
+                  ['2 Transfers - Hit', `+${hitAnalysis.gain_2_after_hit} pts`, hitAnalysis.take_hit ? '#00ff87' : '#ff4444']
+                ].map(([label, value, color]) => (
+                  <div key={label} style={{ background: '#0e1117', borderRadius: '6px', padding: '12px', textAlign: 'center' }}>
+                    <div style={{ color: '#aaa', fontSize: '12px', marginBottom: '4px' }}>{label}</div>
+                    <div style={{ color, fontSize: '22px', fontWeight: 'bold' }}>{value}</div>
+                  </div>
+                ))}
+              </div>
 
-    <h4 style={{ color: '#aaa', marginBottom: '12px', fontSize: '13px', textTransform: 'uppercase', letterSpacing: '1px' }}>Multi-Week Plan</h4>
-    <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-      {hitAnalysis.multi_week_plan.map((week, i) => (
-        <div key={i} style={{ background: '#0e1117', borderRadius: '6px', padding: '12px', flex: '1', minWidth: '200px' }}>
-          <div style={{ color: '#00ff87', fontSize: '12px', fontWeight: 'bold', marginBottom: '6px' }}>{week.week}</div>
-          <div style={{ color: '#fff', fontSize: '13px', marginBottom: '8px' }}>{week.action}</div>
-          {week.transfers.map((t, j) => (
-            <div key={j} style={{ fontSize: '12px', color: '#aaa', marginTop: '4px' }}>
-              OUT <span style={{ color: '#ff4444' }}>{t.sell.web_name}</span> → IN <span style={{ color: '#00ff87' }}>{t.buy.web_name}</span>
+              <h4 style={{ color: '#aaa', marginBottom: '12px', fontSize: '13px', textTransform: 'uppercase', letterSpacing: '1px' }}>Multi-Week Plan</h4>
+              <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+                {hitAnalysis.multi_week_plan.map((week, i) => (
+                  <div key={i} style={{ background: '#0e1117', borderRadius: '6px', padding: '12px', flex: '1', minWidth: '200px' }}>
+                    <div style={{ color: '#00ff87', fontSize: '12px', fontWeight: 'bold', marginBottom: '6px' }}>{week.week}</div>
+                    <div style={{ color: '#fff', fontSize: '13px', marginBottom: '8px' }}>{week.action}</div>
+                    {week.transfers.map((t, j) => (
+                      <div key={j} style={{ fontSize: '12px', color: '#aaa', marginTop: '4px' }}>
+                        OUT <span style={{ color: '#ff4444' }}>{t.sell.web_name}</span> → IN <span style={{ color: '#00ff87' }}>{t.buy.web_name}</span>
+                      </div>
+                    ))}
+                  </div>
+                ))}
+              </div>
             </div>
-          ))}
-        </div>
-      ))}
-    </div>
-  </div>
-)}
+          )}
+
           {suggestions.map((s, i) => (
             <div key={i} style={{ background: '#0e1117', borderRadius: '8px', padding: '16px', marginBottom: '12px', border: '1px solid #2a2f3e' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap', marginBottom: '12px' }}>
@@ -206,16 +248,16 @@ export default function Transfers() {
                   <div key={label} style={{ background: '#1a1f2e', borderRadius: '6px', padding: '12px' }}>
                     <div style={{ color, fontSize: '12px', fontWeight: 'bold', marginBottom: '8px' }}>{label}</div>
                     <div style={{ display: 'flex', alignItems: 'flex-end', gap: '12px', marginBottom: '8px' }}>
-  {p.code && (
-    <img
-      src={`https://resources.premierleague.com/premierleague/photos/players/110x140/p${p.code}.png`}
-      alt={p.web_name}
-      style={{ height: '70px', objectFit: 'contain' }}
-      onError={e => e.target.style.display = 'none'}
-    />
-  )}
-  <div style={{ fontSize: '18px', fontWeight: 'bold' }}>{p.web_name}</div>
-</div>
+                      {p.code && (
+                        <img
+                          src={`https://resources.premierleague.com/premierleague/photos/players/110x140/p${p.code}.png`}
+                          alt={p.web_name}
+                          style={{ height: '70px', objectFit: 'contain' }}
+                          onError={e => e.target.style.display = 'none'}
+                        />
+                      )}
+                      <div style={{ fontSize: '18px', fontWeight: 'bold' }}>{p.web_name}</div>
+                    </div>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px', fontSize: '13px', color: '#aaa' }}>
                       <span>Price</span><span style={{ color: '#fff' }}>£{p.price}m</span>
                       <span>Total Pts</span><span style={{ color: '#fff' }}>{p.total_points}</span>
@@ -223,6 +265,8 @@ export default function Transfers() {
                       <span>PPG</span><span style={{ color: '#fff' }}>{p.points_per_game}</span>
                       <span>Team</span><span style={{ color: '#fff' }}>{p.team_name}</span>
                     </div>
+                    {/* xG stats only on the BUY card, and only for MID/FWD */}
+                    {label === 'Buying' && <XGStats player={p} />}
                   </div>
                 ))}
               </div>

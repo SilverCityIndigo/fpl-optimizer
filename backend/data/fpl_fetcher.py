@@ -5,14 +5,20 @@ Endpoints used:
   - /bootstrap-static/  → all players, teams, gameweeks
   - /element-summary/{id}/ → per-player gameweek history
   - /fixtures/ → full fixture list with FDR
+
+xG data sourced from Understat.com via understatapi package.
+Season key for 2025/26 = "2025" (Understat uses the start year).
 """
 
 import requests
 import sqlite3
-import json
+import asyncio
 from datetime import datetime
+from rapidfuzz import process, fuzz
+from understatapi import UnderstatClient
 
 BASE_URL = "https://fantasy.premierleague.com/api"
+UNDERSTAT_SEASON = "2025"  # 2025/26 season → Understat key is "2025"
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0"
@@ -62,8 +68,8 @@ def init_db(db_path: str = "fpl.db"):
             web_name TEXT,
             full_name TEXT,
             team_id INTEGER,
-            position TEXT,   -- GKP, DEF, MID, FWD
-            price REAL,      -- in millions
+            position TEXT,
+            price REAL,
             total_points INTEGER,
             points_per_game REAL,
             form REAL,
@@ -79,6 +85,9 @@ def init_db(db_path: str = "fpl.db"):
             status TEXT,
             transfers_in_event INTEGER,
             transfers_out_event INTEGER,
+            xg_per90 REAL DEFAULT 0.0,
+            xa_per90 REAL DEFAULT 0.0,
+            xgi_per90 REAL DEFAULT 0.0,
             updated_at TEXT
             );
 
@@ -126,9 +135,16 @@ def init_db(db_path: str = "fpl.db"):
         );
     """)
 
+    # Safely add xG columns to existing DBs that predate this schema
+    for col in ["xg_per90", "xa_per90", "xgi_per90"]:
+        try:
+            c.execute(f"ALTER TABLE players ADD COLUMN {col} REAL DEFAULT 0.0")
+        except Exception:
+            pass  # column already exists, fine
+
     conn.commit()
     conn.close()
-    print("✅ Database schema created.")
+    print("✅ Database schema ready.")
 
 
 POSITION_MAP = {1: "GKP", 2: "DEF", 3: "MID", 4: "FWD"}
@@ -150,12 +166,43 @@ def sync_bootstrap(db_path: str = "fpl.db"):
               t["strength_attack_home"], t["strength_attack_away"],
               t["strength_defence_home"], t["strength_defence_away"]))
 
-    # Players
+    # Players — preserve existing xG values with COALESCE so bootstrap
+    # sync doesn't wipe xG data that was set by a previous xG sync
     for p in data["elements"]:
         c.execute("""
-           INSERT OR REPLACE INTO players VALUES (
-        ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
-    )
+            INSERT INTO players (
+                id, code, web_name, full_name, team_id, position, price,
+                total_points, points_per_game, form, selected_by_percent,
+                minutes, goals_scored, assists, clean_sheets, bonus,
+                ict_index, news, chance_of_playing_next_round, status,
+                transfers_in_event, transfers_out_event,
+                xg_per90, xa_per90, xgi_per90, updated_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0.0,0.0,0.0,?)
+            ON CONFLICT(id) DO UPDATE SET
+                code=excluded.code,
+                web_name=excluded.web_name,
+                full_name=excluded.full_name,
+                team_id=excluded.team_id,
+                position=excluded.position,
+                price=excluded.price,
+                total_points=excluded.total_points,
+                points_per_game=excluded.points_per_game,
+                form=excluded.form,
+                selected_by_percent=excluded.selected_by_percent,
+                minutes=excluded.minutes,
+                goals_scored=excluded.goals_scored,
+                assists=excluded.assists,
+                clean_sheets=excluded.clean_sheets,
+                bonus=excluded.bonus,
+                ict_index=excluded.ict_index,
+                news=excluded.news,
+                chance_of_playing_next_round=excluded.chance_of_playing_next_round,
+                status=excluded.status,
+                transfers_in_event=excluded.transfers_in_event,
+                transfers_out_event=excluded.transfers_out_event,
+                updated_at=excluded.updated_at
+                -- xg_per90/xa_per90/xgi_per90 intentionally NOT updated here
+                -- so bootstrap syncs don't overwrite xG data
         """, (
             p["id"],
             p.get("code"),
@@ -220,7 +267,7 @@ def sync_fixtures(db_path: str = "fpl.db"):
 
 
 def sync_player_histories(db_path: str = "fpl.db", limit: int = None):
-    """Sync per-player GW history. limit=None syncs all players (slow first time)."""
+    """Sync per-player GW history."""
     conn = sqlite3.connect(db_path)
     c = conn.cursor()
     c.execute("SELECT id FROM players ORDER BY total_points DESC")
@@ -261,12 +308,149 @@ def sync_player_histories(db_path: str = "fpl.db", limit: int = None):
     print("✅ Player histories synced.")
 
 
+# ── xG INTEGRATION ────────────────────────────────────────────────────────────
+
+def fetch_understat_xg() -> dict:
+    """
+    Fetch per-90 xG, xA, xGI from Understat for the 2025/26 EPL season.
+
+    Uses understatapi (sync wrapper — no async needed).
+    Understat season key convention: the year the season STARTS.
+    2025/26 season → season="2025"
+
+    Returns dict keyed by player name:
+        { "Erling Haaland": { xg_per90: 0.82, xa_per90: 0.14, xgi_per90: 0.96, minutes: 1890 } }
+    """
+    print(f"📡 Fetching Understat xG data for EPL {UNDERSTAT_SEASON}...")
+    xg_data = {}
+
+    try:
+        with UnderstatClient() as understat:
+            players = understat.league(league="EPL").get_player_data(season=UNDERSTAT_SEASON)
+
+        for p in players:
+            try:
+                minutes = float(p.get("time", 0) or 0)
+                if minutes < 90:  # skip players with less than one full game
+                    continue
+                nineties = minutes / 90.0
+                xg  = float(p.get("xG",  0) or 0)
+                xa  = float(p.get("xA",  0) or 0)
+                xgi = xg + xa
+
+                xg_data[p["player_name"]] = {
+                    "xg_per90":  round(xg  / nineties, 3),
+                    "xa_per90":  round(xa  / nineties, 3),
+                    "xgi_per90": round(xgi / nineties, 3),
+                    "minutes":   int(minutes),
+                }
+            except (ValueError, TypeError, KeyError):
+                continue
+
+        print(f"✅ Understat: got xG data for {len(xg_data)} players")
+
+    except Exception as e:
+        print(f"⚠️  Understat fetch failed: {e}. xG data skipped — FPL data unaffected.")
+
+    return xg_data
+
+
+def fuzzy_match_xg(fpl_players: list, xg_data: dict) -> dict:
+    """
+    Fuzzy-match FPL player full names to Understat player names.
+
+    fpl_players: list of (id, full_name, web_name) tuples
+    xg_data: output of fetch_understat_xg()
+
+    Returns: { fpl_player_id: { xg_per90, xa_per90, xgi_per90 } }
+    """
+    if not xg_data:
+        return {}
+
+    understat_names = list(xg_data.keys())
+    matched = {}
+    unmatched = []
+
+    for fpl_id, full_name, web_name in fpl_players:
+        best_match = None
+        best_score = 0
+
+        # Try full name first (e.g. "Erling Haaland"), then web_name (e.g. "Haaland")
+        for query in [full_name, web_name]:
+            if not query:
+                continue
+            result = process.extractOne(
+                query,
+                understat_names,
+                scorer=fuzz.token_sort_ratio,
+                score_cutoff=78,  # 0-100 scale; 78 is a good balance
+            )
+            if result and result[1] > best_score:
+                best_match = result
+                best_score = result[1]
+
+        if best_match:
+            us_name, score, _ = best_match
+            matched[fpl_id] = {**xg_data[us_name]}
+        else:
+            unmatched.append(full_name)
+
+    print(f"✅ Fuzzy matched {len(matched)}/{len(fpl_players)} FPL players to Understat")
+    if unmatched[:5]:
+        print(f"   Unmatched examples: {unmatched[:5]}")
+
+    return matched
+
+
+def sync_xg(db_path: str = "fpl.db"):
+    """
+    Full xG sync: fetch from Understat, match to FPL players, store in DB.
+    Safe to run standalone or as part of full_sync().
+    """
+    # Load FPL players from DB
+    conn = sqlite3.connect(db_path)
+    c = conn.cursor()
+    c.execute("SELECT id, full_name, web_name FROM players")
+    fpl_players = c.fetchall()  # list of (id, full_name, web_name)
+    conn.close()
+
+    # Fetch from Understat
+    xg_data = fetch_understat_xg()
+    if not xg_data:
+        print("⚠️  No xG data fetched — skipping DB update.")
+        return
+
+    # Fuzzy match
+    matched = fuzzy_match_xg(fpl_players, xg_data)
+    if not matched:
+        print("⚠️  No players matched — skipping DB update.")
+        return
+
+    # Write to DB
+    conn = sqlite3.connect(db_path)
+    c = conn.cursor()
+    for fpl_id, stats in matched.items():
+        c.execute("""
+            UPDATE players
+            SET xg_per90  = ?,
+                xa_per90  = ?,
+                xgi_per90 = ?
+            WHERE id = ?
+        """, (stats["xg_per90"], stats["xa_per90"], stats["xgi_per90"], fpl_id))
+    conn.commit()
+    conn.close()
+    print(f"✅ xG data stored for {len(matched)} players.")
+
+
+# ── SYNC ENTRY POINTS ─────────────────────────────────────────────────────────
+
 def full_sync(db_path: str = "fpl.db"):
-    """Run a complete data sync."""
+    """Run a complete data sync including xG."""
     init_db(db_path)
     sync_bootstrap(db_path)
     sync_fixtures(db_path)
     sync_player_histories(db_path)
+    sync_xg(db_path)
     print("🎉 Full sync complete!")
 
 
