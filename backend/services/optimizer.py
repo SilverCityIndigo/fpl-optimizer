@@ -3,9 +3,11 @@ FPL Squad Optimizer
 Uses linear programming (PuLP) to find the mathematically optimal squad
 given a budget and positional constraints — pure FPL points maximization.
 
-xG blending: for MID/FWD with 450+ minutes, projected_points is a weighted
-blend of exponential-decay form (65%) and xGI/90 signal (35%).
-GKPs and DEFs always use pure form — their xG signal is too sparse.
+xG blending: for MID/FWD, projected_points is a weighted blend of
+exponential-decay form and xG signal. Key improvements over v1:
+- xG and xA weighted separately using correct FPL point values
+- Minutes scale the xG weight gradually (not a binary on/off cutoff)
+- FDR multiplier applied after blending (xG is a season rate, not GW-specific)
 """
 
 import sqlite3
@@ -18,7 +20,6 @@ def get_players_for_optimization(db_path: str = "fpl.db", gw_lookback: int = 6):
     conn = sqlite3.connect(db_path)
     c = conn.cursor()
 
-    # Now includes xg_per90, xa_per90, xgi_per90
     c.execute("""
         SELECT
             p.id,
@@ -64,7 +65,7 @@ def get_players_for_optimization(db_path: str = "fpl.db", gw_lookback: int = 6):
     fdr_multipliers = {1: 1.20, 2: 1.10, 3: 1.00, 4: 0.90, 5: 0.80}
 
     for p in players:
-        # ── Step 1: exponential-decay form score (existing logic) ──────────
+        # ── Step 1: exponential-decay form score ───────────────────────────
         c.execute("""
             SELECT total_points, gameweek
             FROM player_gameweek_history
@@ -82,15 +83,16 @@ def get_players_for_optimization(db_path: str = "fpl.db", gw_lookback: int = 6):
         else:
             decay_score = p["points_per_game"]
 
-        # ── Step 2: blend in xGI/90 for attacking players ─────────────────
+        # ── Step 2: blend xG signal for attacking players ──────────────────
         p["projected_points"] = _blend_xg(p, decay_score)
 
-        # ── Step 3: injury/availability discount ──────────────────────────
+        # ── Step 3: injury/availability discount ───────────────────────────
         chance = p["chance_of_playing"]
         if chance is not None and chance < 100:
             p["projected_points"] *= (chance / 100.0)
 
-        # ── Step 4: fixture difficulty multiplier ─────────────────────────
+        # ── Step 4: fixture difficulty multiplier ──────────────────────────
+        # Applied AFTER xG blend — FDR affects gameweek output, not season xG rate
         fdr = fdr_map.get(p["team_id"], 3)
         p["projected_points"] *= fdr_multipliers.get(fdr, 1.0)
         p["fdr"] = fdr
@@ -99,40 +101,62 @@ def get_players_for_optimization(db_path: str = "fpl.db", gw_lookback: int = 6):
     return players
 
 
-def _blend_xg(player: dict, decay_score: float, xgi_weight: float = 0.65) -> float:
+def _blend_xg(player: dict, decay_score: float, max_xg_weight: float = 0.55) -> float:
     """
-    Blend exponential-decay form with xGI/90 for a more stable projection.
+    Blend exponential-decay form with xG signal for a more stable projection.
 
-    Rules:
-    - Only applied to MID (position=3 in FPL, stored as "MID") and FWD
-    - Player must have 450+ minutes for xG signal to be meaningful
-    - If no xG data (xgi_per90 == 0), falls back to pure decay_score
-    - GKP and DEF always use pure decay_score
+    Improvements over v1:
+    1. xG and xA are weighted SEPARATELY using correct FPL point values
+       - MID: goal=5pts, assist=3pts
+       - FWD: goal=4pts, assist=3pts
+       This is more accurate than lumping them as xGI × a single multiplier.
 
-    Scaling logic:
-    - A MID scoring 0.4 xGI/90 → ~1 goal or 2 assists per 5 games
-      → roughly 5 FPL pts per goal * 0.4 = 2.0 pts/game from xGI alone
-    - We use pts_per_xgi to convert the xGI/90 rate into an approximate
-      FPL points-per-game equivalent, then blend at 35% weight.
+    2. Minutes scale the xG weight GRADUALLY rather than a binary cutoff.
+       Formula: weight = max_xg_weight × min(1.0, (minutes - 90) / 900)
+       - At  90 mins → weight = 0.0  (pure form, no xG)
+       - At 495 mins → weight = 0.275 (half weight)
+       - At 990 mins → weight = 0.55  (full weight)
+       A player with 991 minutes gets the same influence as one with 1800.
+
+    3. GKP and DEF always use pure decay_score — their xG is not meaningful
+       for FPL scoring purposes.
+
+    max_xg_weight of 0.55 means at full minutes, xG accounts for 55% of the
+    projection and recent form 45%. This is intentionally xG-leaning to surface
+    underlying quality over short-term variance, while still respecting form.
     """
-    position  = player.get("position", "")
-    minutes   = float(player.get("minutes") or 0)
-    xgi_per90 = float(player.get("xgi_per90") or 0)
+    position = player.get("position", "")
+    minutes  = float(player.get("minutes") or 0)
+    xg_per90 = float(player.get("xg_per90") or 0)
+    xa_per90 = float(player.get("xa_per90") or 0)
 
-    use_xg = (
-        position in ("MID", "FWD")
-        and minutes >= 450
-        and xgi_per90 > 0
-    )
-
-    if not use_xg:
+    # Only MID and FWD get xG blending
+    if position not in ("MID", "FWD"):
         return round(decay_score, 3)
 
-    # Conservative FPL points per unit of xGI/90
-    pts_per_xgi = 5.0 if position == "MID" else 4.5  # MID goal = 5pts, FWD = 4pts
-    xg_signal = xgi_per90 * pts_per_xgi
+    # No data — fall back to pure form
+    if xg_per90 == 0 and xa_per90 == 0:
+        return round(decay_score, 3)
 
-    blended = (1 - xgi_weight) * decay_score + xgi_weight * xg_signal
+    # Gradual minutes scaling — xG trust grows with sample size
+    # Fully trusted at 990+ minutes (~11 full games)
+    minutes_factor = min(1.0, max(0.0, (minutes - 90) / 900))
+    effective_weight = max_xg_weight * minutes_factor
+
+    if effective_weight == 0:
+        return round(decay_score, 3)
+
+    # Convert xG and xA separately into approximate FPL pts/game
+    if position == "MID":
+        xg_pts = xg_per90 * 5.0   # MID goal = 5 FPL pts
+        xa_pts = xa_per90 * 3.0   # assist = 3 FPL pts
+    else:  # FWD
+        xg_pts = xg_per90 * 4.0   # FWD goal = 4 FPL pts
+        xa_pts = xa_per90 * 3.0
+
+    xg_signal = xg_pts + xa_pts
+
+    blended = (1 - effective_weight) * decay_score + effective_weight * xg_signal
     return round(blended, 3)
 
 
