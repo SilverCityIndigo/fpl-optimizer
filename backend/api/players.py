@@ -193,6 +193,8 @@ def get_team_squad(team_id: int):
             timeout=10
         )
 
+        # All chips start as available
+        # This season FPL gives 2 of each chip (wildcard, freehit, bboost, 3xc)
         chips_available = {
             "wildcard": True,
             "freehit":  True,
@@ -205,18 +207,29 @@ def get_team_squad(team_id: int):
             chips_used = history_data.get("chips", [])
 
             wildcard_uses = 0
+            freehit_uses = 0
+            bboost_uses = 0
+            xc3_uses = 0
+
             for chip in chips_used:
                 name = chip.get("name", "")
                 if name == "wildcard":
                     wildcard_uses += 1
-                else:
-                    if name in chips_available:
-                        chips_available[name] = False
+                elif name == "freehit":
+                    freehit_uses += 1
+                elif name == "bboost":
+                    bboost_uses += 1
+                elif name == "3xc":
+                    xc3_uses += 1
 
-            # Wildcard: 2 uses per season (one each half)
             if wildcard_uses >= 2:
                 chips_available["wildcard"] = False
-            # If used once, still available for the other half — leave as True
+            if freehit_uses >= 2:
+                chips_available["freehit"] = False
+            if bboost_uses >= 2:
+                chips_available["bboost"] = False
+            if xc3_uses >= 2:
+                chips_available["3xc"] = False
 
         conn = get_db()
         c = conn.cursor()
