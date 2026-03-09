@@ -106,7 +106,7 @@ export default function Transfers() {
 
       {/* Enter team ID */}
       <div style={{ background: '#1a1f2e', borderRadius: '8px', padding: '20px', marginBottom: '20px' }}>
-        <h3 style={{ marginBottom: '16px', fontSize: '15px' }}>Step 1: Enter your FPL Team ID</h3>
+        <h3 style={{ marginBottom: '16px', fontSize: '15px' }}> Enter your FPL Team ID</h3>
         <p style={{ color: '#aaa', fontSize: '13px', marginBottom: '12px' }}>
           Find your team ID in the URL when viewing your FPL team page: fantasy.premierleague.com/entry/<strong style={{color:'#00ff87'}}>YOUR_ID</strong>/event/...
         </p>
