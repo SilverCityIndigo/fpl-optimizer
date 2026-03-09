@@ -1,12 +1,11 @@
 import { useState } from 'react'
-import { getTeamSquad, getTransferSuggestions, getHitAnalysis } from '../api' 
+import { getTeamSquad, getTransferSuggestions, getHitAnalysis } from '../api'
 
 function XGStats({ player }) {
   const xgi = parseFloat(player.xgi_per90 || 0)
   const xg  = parseFloat(player.xg_per90  || 0)
   const xa  = parseFloat(player.xa_per90  || 0)
 
-  // Don't show for GKPs/DEFs or players with no data
   if (!xgi || player.position === 'GKP' || player.position === 'DEF') return null
 
   const color = xgi >= 0.6 ? '#00ff87' : xgi >= 0.35 ? '#ffd700' : '#ff8800'
@@ -41,17 +40,141 @@ function XGStats({ player }) {
   )
 }
 
+// Small player card used on the pitch
+function PitchPlayerCard({ player, isBench }) {
+  return (
+    <div style={{
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      width: '80px',
+    }}>
+      <div style={{
+        width: '56px',
+        height: '56px',
+        borderRadius: '50%',
+        overflow: 'hidden',
+        background: '#1a1f2e',
+        border: `2px solid ${isBench ? '#4b5563' : '#00ff87'}`,
+        marginBottom: '4px',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}>
+        {player.code ? (
+          <img
+            src={`https://resources.premierleague.com/premierleague/photos/players/110x140/p${player.code}.png`}
+            alt={player.web_name}
+            style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'top' }}
+            onError={e => {
+              e.target.style.display = 'none'
+              e.target.parentNode.innerHTML = `<span style="font-size:22px">👤</span>`
+            }}
+          />
+        ) : (
+          <span style={{ fontSize: '22px' }}>👤</span>
+        )}
+      </div>
+      <div style={{
+        background: isBench ? '#2a2f3e' : '#00ff87',
+        color: isBench ? '#fff' : '#000',
+        fontSize: '10px',
+        fontWeight: 'bold',
+        padding: '2px 6px',
+        borderRadius: '3px',
+        maxWidth: '80px',
+        textAlign: 'center',
+        whiteSpace: 'nowrap',
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+        marginBottom: '2px',
+      }}>
+        {player.web_name}
+      </div>
+      <div style={{ color: '#9ca3af', fontSize: '10px' }}>{player.team_name}</div>
+    </div>
+  )
+}
+
+function PitchView({ squad, picks }) {
+  // picks is array of {element, position, is_sub} from FPL API
+  // We map picks order to players
+  const ordered = picks.map(pick => {
+    const player = squad.find(p => p.id === pick.element)
+    return player ? { ...player, pickPosition: pick.position, isSub: pick.is_sub } : null
+  }).filter(Boolean)
+
+  const starters = ordered.filter(p => !p.isSub)   // positions 1-11
+  const bench    = ordered.filter(p => p.isSub)     // positions 12-15
+
+  // Group starters by FPL position type
+  const gkp  = starters.filter(p => p.position === 'GKP')
+  const defs = starters.filter(p => p.position === 'DEF')
+  const mids = starters.filter(p => p.position === 'MID')
+  const fwds = starters.filter(p => p.position === 'FWD')
+
+  const Row = ({ players, isBench = false }) => (
+    <div style={{
+      display: 'flex',
+      justifyContent: 'center',
+      gap: '8px',
+      flexWrap: 'wrap',
+      padding: '8px 0',
+    }}>
+      {players.map(p => (
+        <PitchPlayerCard key={p.id} player={p} isBench={isBench} />
+      ))}
+    </div>
+  )
+
+  return (
+    <div style={{ position: 'relative', borderRadius: '12px', overflow: 'hidden', marginBottom: '20px' }}>
+      {/* Pitch background */}
+      <div style={{
+        background: 'linear-gradient(180deg, #1a4731 0%, #1e5c3a 12.5%, #1a4731 12.5%, #1a4731 25%, #1e5c3a 25%, #1e5c3a 37.5%, #1a4731 37.5%, #1a4731 50%, #1e5c3a 50%, #1e5c3a 62.5%, #1a4731 62.5%, #1a4731 75%, #1e5c3a 75%, #1e5c3a 87.5%, #1a4731 87.5%)',
+        padding: '16px 8px',
+        borderRadius: '12px',
+        border: '2px solid #2d6a4f',
+      }}>
+        {/* FWD row at top */}
+        {fwds.length > 0 && <Row players={fwds} />}
+        {/* MID row */}
+        {mids.length > 0 && <Row players={mids} />}
+        {/* DEF row */}
+        {defs.length > 0 && <Row players={defs} />}
+        {/* GKP row at bottom */}
+        {gkp.length > 0 && <Row players={gkp} />}
+      </div>
+
+      {/* Bench strip */}
+      <div style={{
+        background: '#111827',
+        borderTop: '2px dashed #374151',
+        padding: '12px 8px',
+        borderRadius: '0 0 12px 12px',
+      }}>
+        <div style={{ color: '#6b7280', fontSize: '11px', textAlign: 'center', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '1px' }}>
+          Bench
+        </div>
+        <Row players={bench} isBench={true} />
+      </div>
+    </div>
+  )
+}
+
 export default function Transfers() {
-  const [teamId, setTeamId] = useState('')
-  const [budgetItb, setBudgetItb] = useState(0)
+  const [teamId, setTeamId]             = useState('')
+  const [budgetItb, setBudgetItb]       = useState(0)
   const [freeTransfers, setFreeTransfers] = useState(1)
-  const [squad, setSquad] = useState([])
-  const [squadIds, setSquadIds] = useState([])
-  const [suggestions, setSuggestions] = useState([])
-  const [loading, setLoading] = useState(false)
-  const [step, setStep] = useState(1)
-  const [error, setError] = useState('')
-  const [hitAnalysis, setHitAnalysis] = useState(null) 
+  const [squad, setSquad]               = useState([])
+  const [squadIds, setSquadIds]         = useState([])
+  const [picks, setPicks]               = useState([])   // raw pick order from FPL API
+  const [suggestions, setSuggestions]   = useState([])
+  const [loading, setLoading]           = useState(false)
+  const [step, setStep]                 = useState(1)
+  const [error, setError]               = useState('')
+  const [hitAnalysis, setHitAnalysis]   = useState(null)
+  const [viewMode, setViewMode]         = useState('list') // 'list' | 'pitch'
 
   const td = { padding: '10px 12px', borderBottom: '1px solid #1a1f2e', fontSize: '14px' }
   const th = { padding: '10px 12px', textAlign: 'left', borderBottom: '1px solid #2a2f3e', color: '#aaa', fontSize: '13px' }
@@ -65,6 +188,7 @@ export default function Transfers() {
       if (res.data.error) { setError(res.data.error); setLoading(false); return }
       setSquad(res.data.players)
       setSquadIds(res.data.player_ids)
+      setPicks(res.data.picks || [])
       if (res.data.bank !== undefined) setBudgetItb(res.data.bank)
       if (res.data.transfers_left !== undefined) setFreeTransfers(res.data.transfers_left)
       setStep(2)
@@ -97,6 +221,24 @@ export default function Transfers() {
     return '#ff4444'
   }
 
+  const toggleBtn = (mode, label) => (
+    <button
+      onClick={() => setViewMode(mode)}
+      style={{
+        padding: '6px 16px',
+        borderRadius: '6px',
+        border: '1px solid #2a2f3e',
+        background: viewMode === mode ? '#00ff87' : '#0e1117',
+        color: viewMode === mode ? '#000' : '#aaa',
+        fontWeight: viewMode === mode ? 'bold' : 'normal',
+        cursor: 'pointer',
+        fontSize: '13px',
+      }}
+    >
+      {label}
+    </button>
+  )
+
   return (
     <div>
       <h2 style={{ marginBottom: '8px', color: '#00ff87' }}>Transfer Recommendations</h2>
@@ -104,11 +246,11 @@ export default function Transfers() {
         Import your FPL squad and get data-driven transfer suggestions ranked by projected points gain.
       </p>
 
-      {/* Enter team ID */}
+      {/* Step 1: Enter team ID */}
       <div style={{ background: '#1a1f2e', borderRadius: '8px', padding: '20px', marginBottom: '20px' }}>
-        <h3 style={{ marginBottom: '16px', fontSize: '15px' }}> Enter your FPL Team ID</h3>
+        <h3 style={{ marginBottom: '16px', fontSize: '15px' }}>Enter your FPL Team ID</h3>
         <p style={{ color: '#aaa', fontSize: '13px', marginBottom: '12px' }}>
-          Find your team ID in the URL when viewing your FPL team page: fantasy.premierleague.com/entry/<strong style={{color:'#00ff87'}}>YOUR_ID</strong>/event/...
+          Find your team ID in the URL when viewing your FPL team page: fantasy.premierleague.com/entry/<strong style={{ color: '#00ff87' }}>YOUR_ID</strong>/event/...
         </p>
         <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
           <input
@@ -125,38 +267,50 @@ export default function Transfers() {
         {error && <p style={{ color: '#ff4444', marginTop: '12px', fontSize: '13px' }}>{error}</p>}
       </div>
 
-      {/* Step 2: Show squad + transfer settings */}
+      {/* Step 2: Squad + settings */}
       {step >= 2 && squad.length > 0 && (
         <div style={{ background: '#1a1f2e', borderRadius: '8px', padding: '20px', marginBottom: '20px' }}>
-          <h3 style={{ marginBottom: '16px', fontSize: '15px' }}>Step 2: Your Current Squad</h3>
-          <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '20px' }}>
-            <thead style={{ background: '#0e1117' }}>
-              <tr>
-                <th style={th}>Player</th>
-                <th style={th}>Team</th>
-                <th style={th}>Pos</th>
-                <th style={th}>Price</th>
-                <th style={th}>Pts</th>
-                <th style={th}>Form</th>
-                <th style={th}>PPG</th>
-              </tr>
-            </thead>
-            <tbody>
-              {squad.map(p => (
-                <tr key={p.id}
-                  onMouseEnter={e => e.currentTarget.style.background = '#222736'}
-                  onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                  <td style={{ ...td, fontWeight: 'bold' }}>{p.web_name}</td>
-                  <td style={{ ...td, color: '#aaa' }}>{p.team_name}</td>
-                  <td style={td}><span style={{ background: '#2a2f3e', padding: '2px 8px', borderRadius: '4px', fontSize: '12px' }}>{p.position}</span></td>
-                  <td style={{ ...td, color: '#00ff87' }}>£{p.price}m</td>
-                  <td style={td}>{p.total_points}</td>
-                  <td style={td}>{p.form}</td>
-                  <td style={td}>{p.points_per_game}</td>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px', flexWrap: 'wrap', gap: '12px' }}>
+            <h3 style={{ fontSize: '15px', margin: 0 }}>Step 2: Your Current Squad</h3>
+            {/* View toggle */}
+            <div style={{ display: 'flex', gap: '8px' }}>
+              {toggleBtn('list',  '☰ List View')}
+              {toggleBtn('pitch', '⚽ Pitch View')}
+            </div>
+          </div>
+
+          {viewMode === 'pitch' && picks.length > 0 ? (
+            <PitchView squad={squad} picks={picks} />
+          ) : (
+            <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '20px' }}>
+              <thead style={{ background: '#0e1117' }}>
+                <tr>
+                  <th style={th}>Player</th>
+                  <th style={th}>Team</th>
+                  <th style={th}>Pos</th>
+                  <th style={th}>Price</th>
+                  <th style={th}>Pts</th>
+                  <th style={th}>Form</th>
+                  <th style={th}>PPG</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {squad.map(p => (
+                  <tr key={p.id}
+                    onMouseEnter={e => e.currentTarget.style.background = '#222736'}
+                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                    <td style={{ ...td, fontWeight: 'bold' }}>{p.web_name}</td>
+                    <td style={{ ...td, color: '#aaa' }}>{p.team_name}</td>
+                    <td style={td}><span style={{ background: '#2a2f3e', padding: '2px 8px', borderRadius: '4px', fontSize: '12px' }}>{p.position}</span></td>
+                    <td style={{ ...td, color: '#00ff87' }}>£{p.price}m</td>
+                    <td style={td}>{p.total_points}</td>
+                    <td style={td}>{p.form}</td>
+                    <td style={td}>{p.points_per_game}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
 
           <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap', marginBottom: '16px' }}>
             <div>
@@ -168,12 +322,12 @@ export default function Transfers() {
             <div>
               <label style={{ color: '#aaa', fontSize: '13px', display: 'block', marginBottom: '4px' }}>Free transfers</label>
               <select value={freeTransfers} onChange={e => setFreeTransfers(parseInt(e.target.value))}
-              style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #2a2f3e', background: '#0e1117', color: '#fff' }}>
-              <option value={1}>1</option>
-              <option value={2}>2</option>
-              <option value={3}>3</option>
-              <option value={4}>4</option>
-              <option value={5}>5</option>
+                style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #2a2f3e', background: '#0e1117', color: '#fff' }}>
+                <option value={1}>1</option>
+                <option value={2}>2</option>
+                <option value={3}>3</option>
+                <option value={4}>4</option>
+                <option value={5}>5</option>
               </select>
             </div>
           </div>
@@ -265,7 +419,6 @@ export default function Transfers() {
                       <span>PPG</span><span style={{ color: '#fff' }}>{p.points_per_game}</span>
                       <span>Team</span><span style={{ color: '#fff' }}>{p.team_name}</span>
                     </div>
-                    {/* xG stats only on the BUY card, and only for MID/FWD */}
                     {label === 'Buying' && <XGStats player={p} />}
                   </div>
                 ))}

@@ -179,8 +179,18 @@ def get_team_squad(team_id: int):
             return {"error": f"Could not fetch team (status {r.status_code}). Check your team ID."}
 
         data = r.json()
-        picks = data["picks"]
-        player_ids = [p["element"] for p in picks]
+        raw_picks = data["picks"]
+        player_ids = [p["element"] for p in raw_picks]
+
+        # Pass through pick order + sub status for pitch view
+        picks = [
+            {
+                "element":  p["element"],
+                "position": p["position"],   # 1-15
+                "is_sub":   p["position"] > 11,
+            }
+            for p in raw_picks
+        ]
 
         bank = round(data.get("entry_history", {}).get("bank", 0) / 10, 1)
         transfers_made = data.get("entry_history", {}).get("event_transfers", 0)
@@ -193,8 +203,7 @@ def get_team_squad(team_id: int):
             timeout=10
         )
 
-        # All chips start as available
-        # This season FPL gives 2 of each chip (wildcard, freehit, bboost, 3xc)
+        # All chips start as available — this season FPL gives 2 of each
         chips_available = {
             "wildcard": True,
             "freehit":  True,
@@ -207,9 +216,9 @@ def get_team_squad(team_id: int):
             chips_used = history_data.get("chips", [])
 
             wildcard_uses = 0
-            freehit_uses = 0
-            bboost_uses = 0
-            xc3_uses = 0
+            freehit_uses  = 0
+            bboost_uses   = 0
+            xc3_uses      = 0
 
             for chip in chips_used:
                 name = chip.get("name", "")
@@ -245,9 +254,10 @@ def get_team_squad(team_id: int):
         conn.close()
 
         return {
-            "players": players,
-            "player_ids": player_ids,
-            "bank": bank,
+            "players":        players,
+            "player_ids":     player_ids,
+            "picks":          picks,
+            "bank":           bank,
             "transfers_left": transfers_left,
             "chips_available": chips_available,
         }
