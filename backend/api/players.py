@@ -186,41 +186,38 @@ def get_team_squad(team_id: int):
         transfers_made = data.get("entry_history", {}).get("event_transfers", 0)
         transfers_left = max(1, 2 - transfers_made)
 
-        # ── Fetch chip history to determine which chips are still available ──
+        # Fetch chip history to determine which chips are still available
         history_r = requests.get(
             f"https://fantasy.premierleague.com/api/entry/{team_id}/history/",
             headers={"User-Agent": "Mozilla/5.0"},
             timeout=10
         )
 
-        # All 4 chips start as available
         chips_available = {
-    "wildcard": True,
-    "freehit":  True,
-    "bboost":   True,
-    "3xc":      True,
-}
+            "wildcard": True,
+            "freehit":  True,
+            "bboost":   True,
+            "3xc":      True,
+        }
 
-if history_r.status_code == 200:
-    history_data = history_r.json()
-    chips_used = history_data.get("chips", [])
+        if history_r.status_code == 200:
+            history_data = history_r.json()
+            chips_used = history_data.get("chips", [])
 
-    wildcard_uses = 0
-    for chip in chips_used:
-        name = chip.get("name", "")
-        if name == "wildcard":
-            wildcard_uses += 1
-        else:
-            # All other chips: one use total, mark as spent
-            if name in chips_available:
-                chips_available[name] = False
+            wildcard_uses = 0
+            for chip in chips_used:
+                name = chip.get("name", "")
+                if name == "wildcard":
+                    wildcard_uses += 1
+                else:
+                    if name in chips_available:
+                        chips_available[name] = False
 
-    # Wildcard: 2 uses per season (one each half)
-    # Spent both = unavailable, spent one = still have second
-    if wildcard_uses >= 2:
-        chips_available["wildcard"] = False
-    # If only used once, wildcard is still available for the other half
-        
+            # Wildcard: 2 uses per season (one each half)
+            if wildcard_uses >= 2:
+                chips_available["wildcard"] = False
+            # If used once, still available for the other half — leave as True
+
         conn = get_db()
         c = conn.cursor()
         placeholders = ",".join("?" * len(player_ids))
