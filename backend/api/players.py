@@ -195,41 +195,32 @@ def get_team_squad(team_id: int):
 
         # All 4 chips start as available
         chips_available = {
-            "wildcard":       True,
-            "freehit":        True,
-            "bboost":         True,
-            "3xc":            True,
-        }
+    "wildcard": True,
+    "freehit":  True,
+    "bboost":   True,
+    "3xc":      True,
+}
 
-        if history_r.status_code == 200:
-            history_data = history_r.json()
-            chips_used = history_data.get("chips", [])
+if history_r.status_code == 200:
+    history_data = history_r.json()
+    chips_used = history_data.get("chips", [])
 
-            # FPL gives wildcard two uses (one each half of season, GW1-19 and GW20-38)
-            # We track both separately
-            wildcard_uses = 0
-            for chip in chips_used:
-                name = chip.get("name", "")
-                if name == "wildcard":
-                    wildcard_uses += 1
-                elif name in chips_available:
-                    chips_available[name] = False
+    wildcard_uses = 0
+    for chip in chips_used:
+        name = chip.get("name", "")
+        if name == "wildcard":
+            wildcard_uses += 1
+        else:
+            # All other chips: one use total, mark as spent
+            if name in chips_available:
+                chips_available[name] = False
 
-            # Wildcard: used both if played twice, otherwise still available
-            if wildcard_uses >= 2:
-                chips_available["wildcard"] = False
-            # If used once, check which half — if in same half, still available for other half
-            elif wildcard_uses == 1:
-                used_gw = next(c["event"] for c in chips_used if c["name"] == "wildcard")
-                # If used in first half (GW1-19), still available in second half (GW20+)
-                # If used in second half, first half wildcard is gone but so is this season's
-                if current_gw >= 20 and used_gw <= 19:
-                    chips_available["wildcard"] = True  # second half wildcard still available
-                elif current_gw <= 19 and used_gw >= 20:
-                    chips_available["wildcard"] = True  # shouldn't happen but safe
-                else:
-                    chips_available["wildcard"] = False  # used in same half
-
+    # Wildcard: 2 uses per season (one each half)
+    # Spent both = unavailable, spent one = still have second
+    if wildcard_uses >= 2:
+        chips_available["wildcard"] = False
+    # If only used once, wildcard is still available for the other half
+        
         conn = get_db()
         c = conn.cursor()
         placeholders = ",".join("?" * len(player_ids))
