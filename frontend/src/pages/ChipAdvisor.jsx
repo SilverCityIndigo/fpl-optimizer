@@ -43,7 +43,7 @@ export default function ChipAdvisor() {
       <div style={{ background: '#1a1f2e', borderRadius: '8px', padding: '20px', marginBottom: '20px' }}>
         <h3 style={{ marginBottom: '12px', fontSize: '15px' }}>Enter your FPL Team ID</h3>
         <p style={{ color: '#aaa', fontSize: '13px', marginBottom: '12px' }}>
-          Find it at: fantasy.premierleague.com/entry/<strong style={{ color: '#00ff87' }}>YOUR_ID</strong>/event/...
+           Find your team ID in the URL when viewing your FPL team page: fantasy.premierleague.com/entry/<strong style={{color:'#00ff87'}}>YOUR_ID</strong>/event/
         </p>
         <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
           <input

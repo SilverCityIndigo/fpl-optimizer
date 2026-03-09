@@ -104,7 +104,7 @@ export default function Transfers() {
         Import your FPL squad and get data-driven transfer suggestions ranked by projected points gain.
       </p>
 
-      {/* Step 1: Enter team ID */}
+      {/* Enter team ID */}
       <div style={{ background: '#1a1f2e', borderRadius: '8px', padding: '20px', marginBottom: '20px' }}>
         <h3 style={{ marginBottom: '16px', fontSize: '15px' }}>Step 1: Enter your FPL Team ID</h3>
         <p style={{ color: '#aaa', fontSize: '13px', marginBottom: '12px' }}>
