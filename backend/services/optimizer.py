@@ -99,7 +99,7 @@ def get_players_for_optimization(db_path: str = "fpl.db", gw_lookback: int = 6):
     return players
 
 
-def _blend_xg(player: dict, decay_score: float, xgi_weight: float = 0.5) -> float:
+def _blend_xg(player: dict, decay_score: float, xgi_weight: float = 0.6) -> float:
     """
     Blend exponential-decay form with xGI/90 for a more stable projection.
 
