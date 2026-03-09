@@ -102,63 +102,43 @@ def get_players_for_optimization(db_path: str = "fpl.db", gw_lookback: int = 6):
 
 
 def _blend_xg(player: dict, decay_score: float, max_xg_weight: float = 0.55) -> float:
-    """
-    Blend exponential-decay form with xG signal for a more stable projection.
-
-    Improvements over v1:
-    1. xG and xA are weighted SEPARATELY using correct FPL point values
-       - MID: goal=5pts, assist=3pts
-       - FWD: goal=4pts, assist=3pts
-       This is more accurate than lumping them as xGI × a single multiplier.
-
-    2. Minutes scale the xG weight GRADUALLY rather than a binary cutoff.
-       Formula: weight = max_xg_weight × min(1.0, (minutes - 90) / 900)
-       - At  90 mins → weight = 0.0  (pure form, no xG)
-       - At 495 mins → weight = 0.275 (half weight)
-       - At 990 mins → weight = 0.55  (full weight)
-       A player with 991 minutes gets the same influence as one with 1800.
-
-    3. GKP and DEF always use pure decay_score — their xG is not meaningful
-       for FPL scoring purposes.
-
-    max_xg_weight of 0.55 means at full minutes, xG accounts for 55% of the
-    projection and recent form 45%. This is intentionally xG-leaning to surface
-    underlying quality over short-term variance, while still respecting form.
-    """
     position = player.get("position", "")
     minutes  = float(player.get("minutes") or 0)
     xg_per90 = float(player.get("xg_per90") or 0)
     xa_per90 = float(player.get("xa_per90") or 0)
 
-    # Only MID and FWD get xG blending
-    if position not in ("MID", "FWD"):
+    # GKP never gets xG blending
+    if position == "GKP":
         return round(decay_score, 3)
 
-    # No data — fall back to pure form
-    if xg_per90 == 0 and xa_per90 == 0:
-        return round(decay_score, 3)
+    # DEF: only xA matters (fullback assist threat), xG ignored
+    # MID/FWD: both xG and xA weighted by correct FPL point values
+    if position == "DEF":
+        if xa_per90 == 0:
+            return round(decay_score, 3)
+        xg_signal = xa_per90 * 3.0  # assist = 3pts, no goal component
+        # Lower max weight for DEF — xA sample is smaller and noisier
+        max_xg_weight = 0.35
 
-    # Gradual minutes scaling — xG trust grows with sample size
-    # Fully trusted at 990+ minutes (~11 full games)
+    elif position == "MID":
+        if xg_per90 == 0 and xa_per90 == 0:
+            return round(decay_score, 3)
+        xg_signal = (xg_per90 * 5.0) + (xa_per90 * 3.0)
+
+    else:  # FWD
+        if xg_per90 == 0 and xa_per90 == 0:
+            return round(decay_score, 3)
+        xg_signal = (xg_per90 * 4.0) + (xa_per90 * 3.0)
+
+    # Gradual minutes scaling — full weight at 990+ mins
     minutes_factor = min(1.0, max(0.0, (minutes - 90) / 900))
     effective_weight = max_xg_weight * minutes_factor
 
     if effective_weight == 0:
         return round(decay_score, 3)
 
-    # Convert xG and xA separately into approximate FPL pts/game
-    if position == "MID":
-        xg_pts = xg_per90 * 5.0   # MID goal = 5 FPL pts
-        xa_pts = xa_per90 * 3.0   # assist = 3 FPL pts
-    else:  # FWD
-        xg_pts = xg_per90 * 4.0   # FWD goal = 4 FPL pts
-        xa_pts = xa_per90 * 3.0
-
-    xg_signal = xg_pts + xa_pts
-
     blended = (1 - effective_weight) * decay_score + effective_weight * xg_signal
     return round(blended, 3)
-
 
 def optimize_squad(
     budget: float = 100.0,
