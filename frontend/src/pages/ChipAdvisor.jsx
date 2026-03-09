@@ -2,17 +2,18 @@ import { useState } from 'react'
 import { getTeamSquad, getChipAdvice } from '../api'
 
 const CHIP_CONFIG = {
-  triple_captain: { emoji: '⚡', label: 'Triple Captain', color: '#ffd700' },
-  bench_boost: { emoji: '🚀', label: 'Bench Boost', color: '#00b2ff' },
-  wildcard: { emoji: '🃏', label: 'Wildcard', color: '#00ff87' },
-  free_hit: { emoji: '🎯', label: 'Free Hit', color: '#ff8800' }
+  triple_captain: { emoji: '⚡', label: 'Triple Captain', color: '#ffd700',  apiKey: '3xc'      },
+  bench_boost:    { emoji: '🚀', label: 'Bench Boost',    color: '#00b2ff',  apiKey: 'bboost'   },
+  wildcard:       { emoji: '🃏', label: 'Wildcard',       color: '#00ff87',  apiKey: 'wildcard' },
+  free_hit:       { emoji: '🎯', label: 'Free Hit',       color: '#ff8800',  apiKey: 'freehit'  },
 }
 
 export default function ChipAdvisor() {
-  const [teamId, setTeamId] = useState('')
+  const [teamId, setTeamId]   = useState('')
   const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
-  const [advice, setAdvice] = useState(null)
+  const [error, setError]     = useState('')
+  const [advice, setAdvice]   = useState(null)
+  const [chipsAvailable, setChipsAvailable] = useState(null)
 
   async function fetchAdvice() {
     if (!teamId) return
@@ -21,6 +22,10 @@ export default function ChipAdvisor() {
     try {
       const squadRes = await getTeamSquad(teamId)
       if (squadRes.data.error) { setError(squadRes.data.error); setLoading(false); return }
+
+      // Store which chips are available from the squad response
+      setChipsAvailable(squadRes.data.chips_available || null)
+
       const chipRes = await getChipAdvice(squadRes.data.player_ids)
       setAdvice(chipRes.data)
     } catch {
@@ -30,7 +35,7 @@ export default function ChipAdvisor() {
   }
 
   const summary = advice?.squad_summary
-  const chips = advice?.chips
+  const chips   = advice?.chips
 
   return (
     <div>
@@ -43,7 +48,7 @@ export default function ChipAdvisor() {
       <div style={{ background: '#1a1f2e', borderRadius: '8px', padding: '20px', marginBottom: '20px' }}>
         <h3 style={{ marginBottom: '12px', fontSize: '15px' }}>Enter your FPL Team ID</h3>
         <p style={{ color: '#aaa', fontSize: '13px', marginBottom: '12px' }}>
-           Find your team ID in the URL when viewing your FPL team page: fantasy.premierleague.com/entry/<strong style={{color:'#00ff87'}}>YOUR_ID</strong>/event/
+          Find your team ID in the URL when viewing your FPL team page: fantasy.premierleague.com/entry/<strong style={{ color: '#00ff87' }}>YOUR_ID</strong>/event/
         </p>
         <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
           <input
@@ -66,9 +71,9 @@ export default function ChipAdvisor() {
           <div style={{ background: '#1a1f2e', borderRadius: '8px', padding: '16px 20px', marginBottom: '20px', display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
             {[
               ['Starting 11 Avg', `${summary.avg_starting_pts} pts`],
-              ['Bench Avg', `${summary.avg_bench_pts} pts`],
+              ['Bench Avg',       `${summary.avg_bench_pts} pts`],
               ['Next GW Avg FDR', summary.avg_fdr_next_gw],
-              ['5-GW Avg FDR', summary.avg_fdr_5gw],
+              ['5-GW Avg FDR',    summary.avg_fdr_5gw],
             ].map(([label, value]) => (
               <div key={label} style={{ background: '#0e1117', borderRadius: '6px', padding: '10px 16px', textAlign: 'center', flex: '1', minWidth: '120px' }}>
                 <div style={{ color: '#aaa', fontSize: '11px', marginBottom: '4px' }}>{label}</div>
@@ -80,7 +85,40 @@ export default function ChipAdvisor() {
           {/* Chip cards */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: '16px' }}>
             {Object.entries(chips).map(([key, chip]) => {
-              const config = CHIP_CONFIG[key]
+              const config  = CHIP_CONFIG[key]
+              const isAvailable = chipsAvailable
+                ? (chipsAvailable[config.apiKey] ?? true)
+                : true  // if we couldn't detect, assume available
+
+              // Chip has been used — show greyed out "already played" card
+              if (!isAvailable) {
+                return (
+                  <div key={key} style={{
+                    background: '#12151f',
+                    borderRadius: '12px',
+                    padding: '20px',
+                    border: '1px solid #2a2f3e',
+                    opacity: 0.5,
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
+                      <span style={{ fontSize: '24px', filter: 'grayscale(1)' }}>{config.emoji}</span>
+                      <div>
+                        <div style={{ fontWeight: 'bold', fontSize: '16px', color: '#6b7280' }}>
+                          {config.label}
+                        </div>
+                        <div style={{ fontSize: '11px', fontWeight: 'bold', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '1px' }}>
+                          ✅ Already Played
+                        </div>
+                      </div>
+                    </div>
+                    <p style={{ color: '#4b5563', fontSize: '13px' }}>
+                      You've already used this chip this season.
+                    </p>
+                  </div>
+                )
+              }
+
+              // Chip is available — show normal advice card
               return (
                 <div key={key} style={{
                   background: '#1a1f2e',
@@ -102,7 +140,7 @@ export default function ChipAdvisor() {
                         textTransform: 'uppercase',
                         letterSpacing: '1px'
                       }}>
-                        {chip.recommended ? '✅ Recommended' : '❌ Not Recommended'}
+                        {chip.recommended ? '✅ Recommended Now' : '❌ Not Recommended'}
                       </div>
                     </div>
                   </div>
