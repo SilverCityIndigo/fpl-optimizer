@@ -132,7 +132,8 @@ function PitchView({ squad, picks }) {
     <div style={{ position: 'relative', borderRadius: '12px', overflow: 'hidden', marginBottom: '20px' }}>
       {/* Pitch background */}
       <div style={{
-        background: `url(${pitchImg}) center/cover no-repeat`,
+        background: `url(${pitchImg}) top center/contain no-repeat`,
+        minHeight: '580px',  // add this line
         padding: '16px 8px',
         borderRadius: '12px',
         border: '2px solid #2d6a4f',
