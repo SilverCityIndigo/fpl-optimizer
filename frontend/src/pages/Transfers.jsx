@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { getTeamSquad, getTransferSuggestions, getHitAnalysis } from '../api'
+import pitchImg from '../assets/fpl_pitch.jpg'
 
 function XGStats({ player }) {
   const xgi = parseFloat(player.xgi_per90 || 0)
@@ -131,7 +132,7 @@ function PitchView({ squad, picks }) {
     <div style={{ position: 'relative', borderRadius: '12px', overflow: 'hidden', marginBottom: '20px' }}>
       {/* Pitch background */}
       <div style={{
-        background: 'linear-gradient(180deg, #1a4731 0%, #1e5c3a 12.5%, #1a4731 12.5%, #1a4731 25%, #1e5c3a 25%, #1e5c3a 37.5%, #1a4731 37.5%, #1a4731 50%, #1e5c3a 50%, #1e5c3a 62.5%, #1a4731 62.5%, #1a4731 75%, #1e5c3a 75%, #1e5c3a 87.5%, #1a4731 87.5%)',
+        background: `url(${pitchImg}) center/cover no-repeat`,
         padding: '16px 8px',
         borderRadius: '12px',
         border: '2px solid #2d6a4f',
