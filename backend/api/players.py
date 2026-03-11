@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 import sqlite3
 import requests
+from services.optimizer import get_players_for_optimization
 
 router = APIRouter()
 DB_PATH = "fpl.db"
@@ -186,7 +187,7 @@ def get_team_squad(team_id: int):
         picks = [
             {
                 "element":  p["element"],
-                "position": p["position"],   # 1-15
+                "position": p["position"],
                 "is_sub":   p["position"] > 11,
             }
             for p in raw_picks
@@ -196,14 +197,13 @@ def get_team_squad(team_id: int):
         transfers_made = data.get("entry_history", {}).get("event_transfers", 0)
         transfers_left = max(1, 2 - transfers_made)
 
-        # Fetch chip history to determine which chips are still available
+        # Fetch chip history
         history_r = requests.get(
             f"https://fantasy.premierleague.com/api/entry/{team_id}/history/",
             headers={"User-Agent": "Mozilla/5.0"},
             timeout=10
         )
 
-        # All chips start as available — this season FPL gives 2 of each
         chips_available = {
             "wildcard": True,
             "freehit":  True,
@@ -240,12 +240,37 @@ def get_team_squad(team_id: int):
             if xc3_uses >= 2:
                 chips_available["3xc"] = False
 
+        # ── Get projected points + fixture for each squad player ──────────
+        all_players = get_players_for_optimization(DB_PATH)
+        proj_map = {p["id"]: p for p in all_players}
+
+        # Build fixture label map (opponent short name + H/A)
+        conn2 = get_db()
+        c2 = conn2.cursor()
+        c2.execute("""
+            SELECT f.team_h, f.team_a,
+                   th.short_name as home_name, ta.short_name as away_name
+            FROM fixtures f
+            JOIN teams th ON f.team_h = th.id
+            JOIN teams ta ON f.team_a = ta.id
+            WHERE f.gameweek = (SELECT id FROM gameweeks WHERE is_next = 1 LIMIT 1)
+        """)
+        fixture_rows = c2.fetchall()
+        conn2.close()
+
+        # Map each team_id -> "OPP (H)" or "OPP (A)"
+        next_fixture_map = {}
+        for team_h, team_a, home_name, away_name in fixture_rows:
+            next_fixture_map[team_h] = f"{away_name} (H)"
+            next_fixture_map[team_a] = f"{home_name} (A)"
+
         conn = get_db()
         c = conn.cursor()
         placeholders = ",".join("?" * len(player_ids))
         c.execute(f"""
             SELECT p.id, p.code, p.web_name, p.position, p.price, p.total_points,
-                   p.form, p.points_per_game, p.status, t.short_name as team_name
+                   p.form, p.points_per_game, p.status, p.team_id,
+                   t.short_name as team_name
             FROM players p
             JOIN teams t ON p.team_id = t.id
             WHERE p.id IN ({placeholders})
@@ -253,12 +278,18 @@ def get_team_squad(team_id: int):
         players = [dict(row) for row in c.fetchall()]
         conn.close()
 
+        # Attach projected_points and next_fixture to each player
+        for p in players:
+            proj = proj_map.get(p["id"])
+            p["projected_points"] = round(proj["projected_points"], 1) if proj else None
+            p["next_fixture"] = next_fixture_map.get(p["team_id"], "TBD")
+
         return {
-            "players":        players,
-            "player_ids":     player_ids,
-            "picks":          picks,
-            "bank":           bank,
-            "transfers_left": transfers_left,
+            "players":         players,
+            "player_ids":      player_ids,
+            "picks":           picks,
+            "bank":            bank,
+            "transfers_left":  transfers_left,
             "chips_available": chips_available,
         }
     except Exception as e:

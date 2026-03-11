@@ -41,26 +41,38 @@ function XGStats({ player }) {
   )
 }
 
+// FDR colour for fixture badge
+function fdrColor(fixture) {
+  if (!fixture) return '#6b7280'
+  const upper = fixture.toUpperCase()
+  // Simple heuristic — could be refined
+  return '#4b5563'
+}
+
 function PitchPlayerCard({ player, isBench }) {
+  const pts = player.projected_points
+  const fixture = player.next_fixture || ''
+
   return (
     <div style={{
       display: 'flex',
       flexDirection: 'column',
       alignItems: 'center',
-      width: '90px',
+      width: '100px',
     }}>
+      {/* Kit photo */}
       <div style={{
-        width: '68px',
-        height: '68px',
+        width: '72px',
+        height: '72px',
         borderRadius: '50%',
         overflow: 'hidden',
-        background: '#1a1f2e',
+        background: 'rgba(0,0,0,0.4)',
         border: `3px solid ${isBench ? '#4b5563' : '#fff'}`,
-        marginBottom: '5px',
+        marginBottom: '4px',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        boxShadow: isBench ? 'none' : '0 2px 8px rgba(0,0,0,0.5)',
+        boxShadow: isBench ? 'none' : '0 3px 10px rgba(0,0,0,0.6)',
       }}>
         {player.code ? (
           <img
@@ -69,31 +81,78 @@ function PitchPlayerCard({ player, isBench }) {
             style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'top' }}
             onError={e => {
               e.target.style.display = 'none'
-              e.target.parentNode.innerHTML = `<span style="font-size:26px">👤</span>`
+              e.target.parentNode.innerHTML = `<span style="font-size:28px">👤</span>`
             }}
           />
         ) : (
-          <span style={{ fontSize: '26px' }}>👤</span>
+          <span style={{ fontSize: '28px' }}>👤</span>
         )}
       </div>
+
+      {/* Name tag */}
       <div style={{
-        background: isBench ? '#374151' : '#1a1f2e',
+        background: 'rgba(10,10,20,0.85)',
         color: '#fff',
         fontSize: '11px',
         fontWeight: 'bold',
         padding: '3px 8px',
         borderRadius: '4px',
-        maxWidth: '90px',
+        maxWidth: '100px',
         textAlign: 'center',
         whiteSpace: 'nowrap',
         overflow: 'hidden',
         textOverflow: 'ellipsis',
-        marginBottom: '2px',
-        border: isBench ? 'none' : '1px solid rgba(255,255,255,0.2)',
+        marginBottom: '3px',
+        border: '1px solid rgba(255,255,255,0.15)',
       }}>
         {player.web_name}
       </div>
-      <div style={{ color: 'rgba(255,255,255,0.7)', fontSize: '10px' }}>{player.team_name}</div>
+
+      {/* Team name */}
+      <div style={{
+        color: '#fff',
+        fontSize: '10px',
+        fontWeight: '600',
+        marginBottom: '3px',
+        textShadow: '0 1px 3px rgba(0,0,0,0.8)',
+      }}>
+        {player.team_name}
+      </div>
+
+      {!isBench && (
+        <div style={{ display: 'flex', gap: '3px', alignItems: 'center' }}>
+          {/* Fixture badge */}
+          {fixture && (
+            <div style={{
+              background: 'rgba(10,10,20,0.85)',
+              color: '#00ff87',
+              fontSize: '9px',
+              fontWeight: 'bold',
+              padding: '2px 5px',
+              borderRadius: '3px',
+              border: '1px solid rgba(0,255,135,0.3)',
+              whiteSpace: 'nowrap',
+            }}>
+              {fixture}
+            </div>
+          )}
+          {/* Projected points badge */}
+          {pts != null && (
+            <div style={{
+              background: 'rgba(10,10,20,0.85)',
+              color: '#ffd700',
+              fontSize: '9px',
+              fontWeight: 'bold',
+              padding: '2px 5px',
+              borderRadius: '3px',
+              border: '1px solid rgba(255,215,0,0.3)',
+              whiteSpace: 'nowrap',
+            }}>
+              {pts} pts
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }
@@ -112,13 +171,16 @@ function PitchView({ squad, picks }) {
   const mids = starters.filter(p => p.position === 'MID')
   const fwds = starters.filter(p => p.position === 'FWD')
 
+  // Total projected points for starting 11
+  const totalProj = starters.reduce((sum, p) => sum + (p.projected_points || 0), 0)
+
   const Row = ({ players, isBench = false }) => (
     <div style={{
       display: 'flex',
       justifyContent: 'space-evenly',
       alignItems: 'center',
       width: '100%',
-      padding: '6px 24px',
+      padding: '4px 16px',
       boxSizing: 'border-box',
     }}>
       {players.map(p => (
@@ -129,13 +191,27 @@ function PitchView({ squad, picks }) {
 
   return (
     <div style={{ borderRadius: '12px', overflow: 'hidden', marginBottom: '20px' }}>
+      {/* Projected points total banner */}
+      <div style={{
+        background: 'rgba(0,0,0,0.7)',
+        padding: '8px 16px',
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center',
+        gap: '8px',
+        borderBottom: '1px solid rgba(255,215,0,0.2)',
+      }}>
+        <span style={{ color: '#aaa', fontSize: '12px' }}>Projected GW Points (Starting 11):</span>
+        <span style={{ color: '#ffd700', fontWeight: 'bold', fontSize: '16px' }}>{totalProj.toFixed(1)} pts</span>
+      </div>
+
       {/* Pitch — GKP at top, FWD at bottom */}
       <div style={{
         background: `url(${pitchImg}) top center/cover no-repeat`,
         display: 'flex',
         flexDirection: 'column',
         justifyContent: 'space-evenly',
-        minHeight: '560px',
+        minHeight: '580px',
         padding: '12px 0',
         boxSizing: 'border-box',
       }}>
@@ -151,7 +227,7 @@ function PitchView({ squad, picks }) {
         borderTop: '2px dashed #374151',
         padding: '12px 8px 16px',
       }}>
-        <div style={{ color: '#6b7280', fontSize: '11px', textAlign: 'center', marginBottom: '10px', textTransform: 'uppercase', letterSpacing: '1px' }}>
+        <div style={{ color: '#9ca3af', fontSize: '11px', textAlign: 'center', marginBottom: '10px', textTransform: 'uppercase', letterSpacing: '1px' }}>
           Bench
         </div>
         <Row players={bench} isBench={true} />
