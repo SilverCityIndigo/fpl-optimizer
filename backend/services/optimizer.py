@@ -263,27 +263,65 @@ def get_players_for_optimization(db_path: str = "fpl.db", gw_lookback: int = 6):
     return players
 
 
-def _blend_xg(player: dict, decay_score: float, max_xg_weight: float = 0.55) -> float:
+def _form_adaptive_xg_weight(form: float, position: str) -> float:
+    """
+    Returns max_xg_weight that scales inversely with form.
+
+    The idea: bad form is a genuine warning signal (injury return, rotation risk,
+    loss of role) so we trust it more. Good form is already captured by the
+    season xG/xA data, so we let the underlying stats dominate.
+
+    Curve (MID/FWD):
+      form 0  → 0.35  (heavy form penalty, something is wrong)
+      form 3  → 0.55  (moderate — blend evenly)
+      form 6  → 0.72  (good form, trust xG more)
+      form 10 → 0.85  (exceptional, underlying stats lead)
+
+    DEF ceiling is lower (xA sample noisier):
+      form 0  → 0.20
+      form 3  → 0.35
+      form 6  → 0.50
+      form 10 → 0.60
+    """
+    form = max(0.0, min(10.0, float(form or 0)))
+
+    if position == "DEF":
+        # Linear scale: 0.20 at form=0, 0.60 at form=10
+        return round(0.20 + (form / 10.0) * 0.40, 3)
+    else:
+        # Smooth curve: 0.35 at form=0, 0.85 at form=10
+        # Using a gentle log-like curve: weight = 0.35 + 0.50 * (form/10)^0.6
+        return round(0.35 + 0.50 * ((form / 10.0) ** 0.6), 3)
+
+
+def _blend_xg(player: dict, decay_score: float) -> float:
     """
     Blend exponential-decay form score with xG signal for attacking players.
     GKP:  pure decay (no xG)
-    DEF:  xA only (fullback assist threat), lower max weight
-    MID:  xG × 5 + xA × 3 (FPL point values)
-    FWD:  xG × 4 + xA × 3
+    DEF:  xA only (fullback assist threat), form-adaptive lower weight
+    MID:  xG × 5 + xA × 3 (FPL point values), form-adaptive weight
+    FWD:  xG × 4 + xA × 3, form-adaptive weight
+
+    Form-adaptive xG weight:
+      - Low form  → lower xG weight (form is a warning signal, respect it)
+      - High form → higher xG weight (trust the season underlying stats)
     """
     position = player.get("position", "")
     minutes  = float(player.get("minutes") or 0)
     xg_per90 = float(player.get("xg_per90") or 0)
     xa_per90 = float(player.get("xa_per90") or 0)
+    form     = float(player.get("form") or 0)
 
     if position == "GKP":
         return round(decay_score, 3)
 
+    # Form-adaptive ceiling for xG weight
+    max_xg_weight = _form_adaptive_xg_weight(form, position)
+
     if position == "DEF":
         if xa_per90 == 0:
             return round(decay_score, 3)
-        xg_signal    = xa_per90 * 3.0
-        max_xg_weight = 0.35
+        xg_signal = xa_per90 * 3.0
 
     elif position == "MID":
         if xg_per90 == 0 and xa_per90 == 0:
