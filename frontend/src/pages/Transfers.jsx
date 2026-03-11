@@ -41,37 +41,16 @@ function XGStats({ player }) {
   )
 }
 
-// FDR colour for fixture badge
-function fdrColor(fixture) {
-  if (!fixture) return '#6b7280'
-  const upper = fixture.toUpperCase()
-  // Simple heuristic — could be refined
-  return '#4b5563'
-}
-
 function PitchPlayerCard({ player, isBench }) {
   const pts = player.projected_points
   const fixture = player.next_fixture || ''
 
   return (
-    <div style={{
-      display: 'flex',
-      flexDirection: 'column',
-      alignItems: 'center',
-      width: '100px',
-    }}>
-      {/* Kit photo */}
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: '100px' }}>
       <div style={{
-        width: '72px',
-        height: '72px',
-        borderRadius: '50%',
-        overflow: 'hidden',
-        background: 'rgba(0,0,0,0.4)',
-        border: `3px solid ${isBench ? '#4b5563' : '#fff'}`,
-        marginBottom: '4px',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
+        width: '72px', height: '72px', borderRadius: '50%', overflow: 'hidden',
+        background: 'rgba(0,0,0,0.4)', border: `3px solid ${isBench ? '#4b5563' : '#fff'}`,
+        marginBottom: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center',
         boxShadow: isBench ? 'none' : '0 3px 10px rgba(0,0,0,0.6)',
       }}>
         {player.code ? (
@@ -79,74 +58,38 @@ function PitchPlayerCard({ player, isBench }) {
             src={`https://resources.premierleague.com/premierleague/photos/players/110x140/p${player.code}.png`}
             alt={player.web_name}
             style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'top' }}
-            onError={e => {
-              e.target.style.display = 'none'
-              e.target.parentNode.innerHTML = `<span style="font-size:28px">👤</span>`
-            }}
+            onError={e => { e.target.style.display = 'none'; e.target.parentNode.innerHTML = `<span style="font-size:28px">👤</span>` }}
           />
-        ) : (
-          <span style={{ fontSize: '28px' }}>👤</span>
-        )}
+        ) : <span style={{ fontSize: '28px' }}>👤</span>}
       </div>
 
-      {/* Name tag */}
       <div style={{
-        background: 'rgba(10,10,20,0.85)',
-        color: '#fff',
-        fontSize: '11px',
-        fontWeight: 'bold',
-        padding: '3px 8px',
-        borderRadius: '4px',
-        maxWidth: '100px',
-        textAlign: 'center',
-        whiteSpace: 'nowrap',
-        overflow: 'hidden',
-        textOverflow: 'ellipsis',
-        marginBottom: '3px',
+        background: 'rgba(10,10,20,0.85)', color: '#fff', fontSize: '11px', fontWeight: 'bold',
+        padding: '3px 8px', borderRadius: '4px', maxWidth: '100px', textAlign: 'center',
+        whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginBottom: '3px',
         border: '1px solid rgba(255,255,255,0.15)',
       }}>
         {player.web_name}
       </div>
 
-      {/* Team name */}
-      <div style={{
-        color: '#fff',
-        fontSize: '10px',
-        fontWeight: '600',
-        marginBottom: '3px',
-        textShadow: '0 1px 3px rgba(0,0,0,0.8)',
-      }}>
+      <div style={{ color: '#fff', fontSize: '10px', fontWeight: '600', marginBottom: '3px', textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}>
         {player.team_name}
       </div>
 
       {!isBench && (
         <div style={{ display: 'flex', gap: '3px', alignItems: 'center' }}>
-          {/* Fixture badge */}
           {fixture && (
             <div style={{
-              background: 'rgba(10,10,20,0.85)',
-              color: '#00ff87',
-              fontSize: '9px',
-              fontWeight: 'bold',
-              padding: '2px 5px',
-              borderRadius: '3px',
-              border: '1px solid rgba(0,255,135,0.3)',
-              whiteSpace: 'nowrap',
+              background: 'rgba(10,10,20,0.85)', color: '#00ff87', fontSize: '9px', fontWeight: 'bold',
+              padding: '2px 5px', borderRadius: '3px', border: '1px solid rgba(0,255,135,0.3)', whiteSpace: 'nowrap',
             }}>
               {fixture}
             </div>
           )}
-          {/* Projected points badge */}
           {pts != null && (
             <div style={{
-              background: 'rgba(10,10,20,0.85)',
-              color: '#ffd700',
-              fontSize: '9px',
-              fontWeight: 'bold',
-              padding: '2px 5px',
-              borderRadius: '3px',
-              border: '1px solid rgba(255,215,0,0.3)',
-              whiteSpace: 'nowrap',
+              background: 'rgba(10,10,20,0.85)', color: '#ffd700', fontSize: '9px', fontWeight: 'bold',
+              padding: '2px 5px', borderRadius: '3px', border: '1px solid rgba(255,215,0,0.3)', whiteSpace: 'nowrap',
             }}>
               {pts} pts
             </div>
@@ -165,71 +108,32 @@ function PitchView({ squad, picks }) {
 
   const starters = ordered.filter(p => !p.isSub)
   const bench    = ordered.filter(p => p.isSub)
-
   const gkp  = starters.filter(p => p.position === 'GKP')
   const defs = starters.filter(p => p.position === 'DEF')
   const mids = starters.filter(p => p.position === 'MID')
   const fwds = starters.filter(p => p.position === 'FWD')
-
-  // Total projected points for starting 11
   const totalProj = starters.reduce((sum, p) => sum + (p.projected_points || 0), 0)
 
   const Row = ({ players, isBench = false }) => (
-    <div style={{
-      display: 'flex',
-      justifyContent: 'space-evenly',
-      alignItems: 'center',
-      width: '100%',
-      padding: '4px 16px',
-      boxSizing: 'border-box',
-    }}>
-      {players.map(p => (
-        <PitchPlayerCard key={p.id} player={p} isBench={isBench} />
-      ))}
+    <div style={{ display: 'flex', justifyContent: 'space-evenly', alignItems: 'center', width: '100%', padding: '4px 16px', boxSizing: 'border-box' }}>
+      {players.map(p => <PitchPlayerCard key={p.id} player={p} isBench={isBench} />)}
     </div>
   )
 
   return (
     <div style={{ borderRadius: '12px', overflow: 'hidden', marginBottom: '20px' }}>
-      {/* Projected points total banner */}
-      <div style={{
-        background: 'rgba(0,0,0,0.7)',
-        padding: '8px 16px',
-        display: 'flex',
-        justifyContent: 'center',
-        alignItems: 'center',
-        gap: '8px',
-        borderBottom: '1px solid rgba(255,215,0,0.2)',
-      }}>
+      <div style={{ background: 'rgba(0,0,0,0.7)', padding: '8px 16px', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px', borderBottom: '1px solid rgba(255,215,0,0.2)' }}>
         <span style={{ color: '#aaa', fontSize: '12px' }}>Projected GW Points (Starting 11):</span>
         <span style={{ color: '#ffd700', fontWeight: 'bold', fontSize: '16px' }}>{totalProj.toFixed(1)} pts</span>
       </div>
-
-      {/* Pitch — GKP at top, FWD at bottom */}
-      <div style={{
-        background: `url(${pitchImg}) top center/cover no-repeat`,
-        display: 'flex',
-        flexDirection: 'column',
-        justifyContent: 'space-evenly',
-        minHeight: '580px',
-        padding: '12px 0',
-        boxSizing: 'border-box',
-      }}>
+      <div style={{ background: `url(${pitchImg}) top center/cover no-repeat`, display: 'flex', flexDirection: 'column', justifyContent: 'space-evenly', minHeight: '580px', padding: '12px 0', boxSizing: 'border-box' }}>
         <Row players={gkp} />
         <Row players={defs} />
         <Row players={mids} />
         <Row players={fwds} />
       </div>
-
-      {/* Bench strip */}
-      <div style={{
-        background: '#111827',
-        borderTop: '2px dashed #374151',
-        padding: '12px 8px 16px',
-      }}>
-        <div style={{ color: '#9ca3af', fontSize: '11px', textAlign: 'center', marginBottom: '10px', textTransform: 'uppercase', letterSpacing: '1px' }}>
-          Bench
-        </div>
+      <div style={{ background: '#111827', borderTop: '2px dashed #374151', padding: '12px 8px 16px' }}>
+        <div style={{ color: '#9ca3af', fontSize: '11px', textAlign: 'center', marginBottom: '10px', textTransform: 'uppercase', letterSpacing: '1px' }}>Bench</div>
         <Row players={bench} isBench={true} />
       </div>
     </div>
@@ -243,12 +147,13 @@ export default function Transfers() {
   const [squad, setSquad]                 = useState([])
   const [squadIds, setSquadIds]           = useState([])
   const [picks, setPicks]                 = useState([])
+  const [nextGw, setNextGw]               = useState(null)
   const [suggestions, setSuggestions]     = useState([])
   const [loading, setLoading]             = useState(false)
   const [step, setStep]                   = useState(1)
   const [error, setError]                 = useState('')
   const [hitAnalysis, setHitAnalysis]     = useState(null)
-  const [viewMode, setViewMode]           = useState('list')
+  const [viewMode, setViewMode]           = useState('pitch')  // ← pitch is default
 
   const td = { padding: '10px 12px', borderBottom: '1px solid #1a1f2e', fontSize: '14px' }
   const th = { padding: '10px 12px', textAlign: 'left', borderBottom: '1px solid #2a2f3e', color: '#aaa', fontSize: '13px' }
@@ -263,6 +168,7 @@ export default function Transfers() {
       setSquad(res.data.players)
       setSquadIds(res.data.player_ids)
       setPicks(res.data.picks || [])
+      setNextGw(res.data.next_gw || null)
       if (res.data.bank !== undefined) setBudgetItb(res.data.bank)
       if (res.data.transfers_left !== undefined) setFreeTransfers(res.data.transfers_left)
       setStep(2)
@@ -295,20 +201,16 @@ export default function Transfers() {
     return '#ff4444'
   }
 
+  const gwLabel = nextGw ? `GW${nextGw}` : 'GW'
+
   const toggleBtn = (mode, label) => (
-    <button
-      onClick={() => setViewMode(mode)}
-      style={{
-        padding: '6px 16px',
-        borderRadius: '6px',
-        border: '1px solid #2a2f3e',
-        background: viewMode === mode ? '#00ff87' : '#0e1117',
-        color: viewMode === mode ? '#000' : '#aaa',
-        fontWeight: viewMode === mode ? 'bold' : 'normal',
-        cursor: 'pointer',
-        fontSize: '13px',
-      }}
-    >
+    <button onClick={() => setViewMode(mode)} style={{
+      padding: '6px 16px', borderRadius: '6px', border: '1px solid #2a2f3e',
+      background: viewMode === mode ? '#00ff87' : '#0e1117',
+      color: viewMode === mode ? '#000' : '#aaa',
+      fontWeight: viewMode === mode ? 'bold' : 'normal',
+      cursor: 'pointer', fontSize: '13px',
+    }}>
       {label}
     </button>
   )
@@ -320,7 +222,7 @@ export default function Transfers() {
         Import your FPL squad and get data-driven transfer suggestions ranked by projected points gain.
       </p>
 
-      {/* Step 1: Enter team ID */}
+      {/* Step 1 */}
       <div style={{ background: '#1a1f2e', borderRadius: '8px', padding: '20px', marginBottom: '20px' }}>
         <h3 style={{ marginBottom: '16px', fontSize: '15px' }}>Enter your FPL Team ID</h3>
         <p style={{ color: '#aaa', fontSize: '13px', marginBottom: '12px' }}>
@@ -341,14 +243,15 @@ export default function Transfers() {
         {error && <p style={{ color: '#ff4444', marginTop: '12px', fontSize: '13px' }}>{error}</p>}
       </div>
 
-      {/* Step 2: Squad + settings */}
+      {/* Step 2 */}
       {step >= 2 && squad.length > 0 && (
         <div style={{ background: '#1a1f2e', borderRadius: '8px', padding: '20px', marginBottom: '20px' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px', flexWrap: 'wrap', gap: '12px' }}>
             <h3 style={{ fontSize: '15px', margin: 0 }}>Step 2: Your Current Squad</h3>
+            {/* ⚽ Pitch first, ☰ List second */}
             <div style={{ display: 'flex', gap: '8px' }}>
-              {toggleBtn('list',  '☰ List View')}
               {toggleBtn('pitch', '⚽ Pitch View')}
+              {toggleBtn('list',  '☰ List View')}
             </div>
           </div>
 
@@ -365,6 +268,7 @@ export default function Transfers() {
                   <th style={th}>Pts</th>
                   <th style={th}>Form</th>
                   <th style={th}>PPG</th>
+                  <th style={{ ...th, color: '#ffd700' }}>{gwLabel} Proj. Pts</th>
                 </tr>
               </thead>
               <tbody>
@@ -379,6 +283,9 @@ export default function Transfers() {
                     <td style={td}>{p.total_points}</td>
                     <td style={td}>{p.form}</td>
                     <td style={td}>{p.points_per_game}</td>
+                    <td style={{ ...td, color: '#ffd700', fontWeight: 'bold' }}>
+                      {p.projected_points != null ? p.projected_points : '—'}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -412,7 +319,7 @@ export default function Transfers() {
         </div>
       )}
 
-      {/* Step 3: Suggestions */}
+      {/* Step 3 */}
       {step >= 3 && suggestions.length > 0 && (
         <div style={{ background: '#1a1f2e', borderRadius: '8px', padding: '20px' }}>
           <h3 style={{ marginBottom: '16px', fontSize: '15px' }}>Step 3: Recommended Transfers</h3>
@@ -427,7 +334,6 @@ export default function Transfers() {
                 {hitAnalysis.take_hit ? '✅ Recommendation: Take the -4 Hit' : '❌ Recommendation: No Hit Needed'}
               </h3>
               <p style={{ color: '#fff', marginBottom: '16px', fontSize: '15px' }}>{hitAnalysis.recommendation}</p>
-
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', marginBottom: '16px' }}>
                 {[
                   ['Best 1 Transfer', `+${hitAnalysis.gain_1_transfer} pts`, '#ffd700'],
@@ -440,7 +346,6 @@ export default function Transfers() {
                   </div>
                 ))}
               </div>
-
               <h4 style={{ color: '#aaa', marginBottom: '12px', fontSize: '13px', textTransform: 'uppercase', letterSpacing: '1px' }}>Multi-Week Plan</h4>
               <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
                 {hitAnalysis.multi_week_plan.map((week, i) => (

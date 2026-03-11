@@ -291,6 +291,7 @@ def get_team_squad(team_id: int):
             "bank":            bank,
             "transfers_left":  transfers_left,
             "chips_available": chips_available,
+            "next_gw": current_gw + 1,
         }
     except Exception as e:
         return {"error": str(e)}
