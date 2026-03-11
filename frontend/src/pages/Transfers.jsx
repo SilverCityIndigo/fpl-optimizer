@@ -41,26 +41,26 @@ function XGStats({ player }) {
   )
 }
 
-// Small player card used on the pitch
 function PitchPlayerCard({ player, isBench }) {
   return (
     <div style={{
       display: 'flex',
       flexDirection: 'column',
       alignItems: 'center',
-      width: '80px',
+      width: '90px',
     }}>
       <div style={{
-        width: '56px',
-        height: '56px',
+        width: '68px',
+        height: '68px',
         borderRadius: '50%',
         overflow: 'hidden',
         background: '#1a1f2e',
-        border: `2px solid ${isBench ? '#4b5563' : '#00ff87'}`,
-        marginBottom: '4px',
+        border: `3px solid ${isBench ? '#4b5563' : '#fff'}`,
+        marginBottom: '5px',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
+        boxShadow: isBench ? 'none' : '0 2px 8px rgba(0,0,0,0.5)',
       }}>
         {player.code ? (
           <img
@@ -69,46 +69,44 @@ function PitchPlayerCard({ player, isBench }) {
             style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'top' }}
             onError={e => {
               e.target.style.display = 'none'
-              e.target.parentNode.innerHTML = `<span style="font-size:22px">👤</span>`
+              e.target.parentNode.innerHTML = `<span style="font-size:26px">👤</span>`
             }}
           />
         ) : (
-          <span style={{ fontSize: '22px' }}>👤</span>
+          <span style={{ fontSize: '26px' }}>👤</span>
         )}
       </div>
       <div style={{
-        background: isBench ? '#2a2f3e' : '#00ff87',
-        color: isBench ? '#fff' : '#000',
-        fontSize: '10px',
+        background: isBench ? '#374151' : '#1a1f2e',
+        color: '#fff',
+        fontSize: '11px',
         fontWeight: 'bold',
-        padding: '2px 6px',
-        borderRadius: '3px',
-        maxWidth: '80px',
+        padding: '3px 8px',
+        borderRadius: '4px',
+        maxWidth: '90px',
         textAlign: 'center',
         whiteSpace: 'nowrap',
         overflow: 'hidden',
         textOverflow: 'ellipsis',
         marginBottom: '2px',
+        border: isBench ? 'none' : '1px solid rgba(255,255,255,0.2)',
       }}>
         {player.web_name}
       </div>
-      <div style={{ color: '#9ca3af', fontSize: '10px' }}>{player.team_name}</div>
+      <div style={{ color: 'rgba(255,255,255,0.7)', fontSize: '10px' }}>{player.team_name}</div>
     </div>
   )
 }
 
 function PitchView({ squad, picks }) {
-  // picks is array of {element, position, is_sub} from FPL API
-  // We map picks order to players
   const ordered = picks.map(pick => {
     const player = squad.find(p => p.id === pick.element)
     return player ? { ...player, pickPosition: pick.position, isSub: pick.is_sub } : null
   }).filter(Boolean)
 
-  const starters = ordered.filter(p => !p.isSub)   // positions 1-11
-  const bench    = ordered.filter(p => p.isSub)     // positions 12-15
+  const starters = ordered.filter(p => !p.isSub)
+  const bench    = ordered.filter(p => p.isSub)
 
-  // Group starters by FPL position type
   const gkp  = starters.filter(p => p.position === 'GKP')
   const defs = starters.filter(p => p.position === 'DEF')
   const mids = starters.filter(p => p.position === 'MID')
@@ -117,10 +115,11 @@ function PitchView({ squad, picks }) {
   const Row = ({ players, isBench = false }) => (
     <div style={{
       display: 'flex',
-      justifyContent: 'center',
-      gap: '8px',
-      flexWrap: 'wrap',
-      padding: '8px 0',
+      justifyContent: 'space-evenly',
+      alignItems: 'center',
+      width: '100%',
+      padding: '6px 24px',
+      boxSizing: 'border-box',
     }}>
       {players.map(p => (
         <PitchPlayerCard key={p.id} player={p} isBench={isBench} />
@@ -129,33 +128,30 @@ function PitchView({ squad, picks }) {
   )
 
   return (
-    <div style={{ position: 'relative', borderRadius: '12px', overflow: 'hidden', marginBottom: '20px' }}>
-      {/* Pitch background */}
+    <div style={{ borderRadius: '12px', overflow: 'hidden', marginBottom: '20px' }}>
+      {/* Pitch — GKP at top, FWD at bottom */}
       <div style={{
-        background: `url(${pitchImg}) top center/contain no-repeat`,
-        minHeight: '580px',  // add this line
-        padding: '16px 8px',
-        borderRadius: '12px',
-        border: '2px solid #2d6a4f',
+        background: `url(${pitchImg}) top center/cover no-repeat`,
+        display: 'flex',
+        flexDirection: 'column',
+        justifyContent: 'space-evenly',
+        minHeight: '560px',
+        padding: '12px 0',
+        boxSizing: 'border-box',
       }}>
-        {/* FWD row at top */}
-        {fwds.length > 0 && <Row players={fwds} />}
-        {/* MID row */}
-        {mids.length > 0 && <Row players={mids} />}
-        {/* DEF row */}
-        {defs.length > 0 && <Row players={defs} />}
-        {/* GKP row at bottom */}
-        {gkp.length > 0 && <Row players={gkp} />}
+        <Row players={gkp} />
+        <Row players={defs} />
+        <Row players={mids} />
+        <Row players={fwds} />
       </div>
 
       {/* Bench strip */}
       <div style={{
         background: '#111827',
         borderTop: '2px dashed #374151',
-        padding: '12px 8px',
-        borderRadius: '0 0 12px 12px',
+        padding: '12px 8px 16px',
       }}>
-        <div style={{ color: '#6b7280', fontSize: '11px', textAlign: 'center', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '1px' }}>
+        <div style={{ color: '#6b7280', fontSize: '11px', textAlign: 'center', marginBottom: '10px', textTransform: 'uppercase', letterSpacing: '1px' }}>
           Bench
         </div>
         <Row players={bench} isBench={true} />
@@ -165,18 +161,18 @@ function PitchView({ squad, picks }) {
 }
 
 export default function Transfers() {
-  const [teamId, setTeamId]             = useState('')
-  const [budgetItb, setBudgetItb]       = useState(0)
+  const [teamId, setTeamId]               = useState('')
+  const [budgetItb, setBudgetItb]         = useState(0)
   const [freeTransfers, setFreeTransfers] = useState(1)
-  const [squad, setSquad]               = useState([])
-  const [squadIds, setSquadIds]         = useState([])
-  const [picks, setPicks]               = useState([])   // raw pick order from FPL API
-  const [suggestions, setSuggestions]   = useState([])
-  const [loading, setLoading]           = useState(false)
-  const [step, setStep]                 = useState(1)
-  const [error, setError]               = useState('')
-  const [hitAnalysis, setHitAnalysis]   = useState(null)
-  const [viewMode, setViewMode]         = useState('list') // 'list' | 'pitch'
+  const [squad, setSquad]                 = useState([])
+  const [squadIds, setSquadIds]           = useState([])
+  const [picks, setPicks]                 = useState([])
+  const [suggestions, setSuggestions]     = useState([])
+  const [loading, setLoading]             = useState(false)
+  const [step, setStep]                   = useState(1)
+  const [error, setError]                 = useState('')
+  const [hitAnalysis, setHitAnalysis]     = useState(null)
+  const [viewMode, setViewMode]           = useState('list')
 
   const td = { padding: '10px 12px', borderBottom: '1px solid #1a1f2e', fontSize: '14px' }
   const th = { padding: '10px 12px', textAlign: 'left', borderBottom: '1px solid #2a2f3e', color: '#aaa', fontSize: '13px' }
@@ -274,7 +270,6 @@ export default function Transfers() {
         <div style={{ background: '#1a1f2e', borderRadius: '8px', padding: '20px', marginBottom: '20px' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px', flexWrap: 'wrap', gap: '12px' }}>
             <h3 style={{ fontSize: '15px', margin: 0 }}>Step 2: Your Current Squad</h3>
-            {/* View toggle */}
             <div style={{ display: 'flex', gap: '8px' }}>
               {toggleBtn('list',  '☰ List View')}
               {toggleBtn('pitch', '⚽ Pitch View')}
@@ -346,7 +341,6 @@ export default function Transfers() {
         <div style={{ background: '#1a1f2e', borderRadius: '8px', padding: '20px' }}>
           <h3 style={{ marginBottom: '16px', fontSize: '15px' }}>Step 3: Recommended Transfers</h3>
 
-          {/* Hit Analysis Banner */}
           {hitAnalysis && (
             <div style={{
               background: hitAnalysis.take_hit ? '#0d2b1a' : '#2b0d0d',
