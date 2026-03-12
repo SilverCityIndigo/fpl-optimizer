@@ -4,85 +4,48 @@ import { getPlayers } from '../api'
 const POSITIONS = ['All', 'GKP', 'DEF', 'MID', 'FWD']
 
 function valueRating(player) {
-  const form          = parseFloat(player.form || 0)
-  const ppg           = parseFloat(player.points_per_game || 0)
-  const price         = parseFloat(player.price || 1)
-  const ownership     = parseFloat(player.selected_by_percent || 0)
-  const totalPts      = parseInt(player.total_points || 0)
-  const ptsPer        = ppg / price
+  const ptsPer = player.points_per_game / player.price
+  const ownership = player.selected_by_percent
+  const form = player.form
 
-  // ── Score each dimension 0-10 ──────────────────────────────────────────
-
-  // 1. Ownership trust — high ownership means managers collectively back this player
-  const ownershipScore = Math.min(10, ownership / 6)
-
-  // 2. Season consistency — total points relative to a strong season benchmark
-  const consistencyScore = Math.min(10, totalPts / 18)
-
-  // 3. PPG efficiency — points per game
-  const ppgScore = Math.min(10, ppg / 0.8)
-
-  // 4. Value for money — PPG per £m spent
-  const valueScore = Math.min(10, ptsPer / 0.08)
-
-  // 5. Recent form — asymmetric weighting:
-  //    bad form punishes more than good form rewards
-  //    because low form is a genuine warning signal (injury return, rotation, loss of role)
-  //    while high form is already captured in PPG and total points
-  let formScore
-  if (form < 3) {
-    formScore = form * 1.0             // heavy penalty: 0 to 3
-  } else if (form < 5) {
-    formScore = 3 + (form - 3)         // moderate: 3 to 5
-  } else {
-    formScore = 5 + (form - 5) * 0.5  // diminishing returns above 5: max ~8.5
+  if (form < 2) {
+    return { label: '🚫 Avoid', color: '#ff4444' }
   }
-  formScore = Math.min(10, formScore)
 
-  // ── Weighted total (out of 100) ────────────────────────────────────────
-  // Consistency and PPG weighted most — they reflect true quality
-  // Form weighted least — already embedded in PPG and total points
-  const score =
-    ownershipScore   * 2.0 +
-    consistencyScore * 2.5 +
-    ppgScore         * 2.5 +
-    valueScore       * 2.0 +
-    formScore        * 1.0
+  if (player.price >= 8.0 && form < 4) {
+    return { label: '🚫 Avoid', color: '#ff4444' }
+  }
 
-  // ── Tag assignment ─────────────────────────────────────────────────────
-  // Reliable check first — catches elite players in a cold patch (e.g. Haaland)
-  // High ownership + strong season output = managers trust this player for a reason
-  if (ownership >= 25 && consistencyScore >= 7 && ppgScore >= 6) {
+  if (ownership >= 30 && ptsPer >= 0.55 && form >= 4) {
     return { label: '📊 Reliable', color: '#00b2ff' }
   }
 
-  if (score >= 62) {
+  if (ptsPer >= 0.75 && form >= 4.2) {
     return { label: '⭐ Elite Value', color: '#00ff87' }
   }
 
-  if (score >= 45) {
+  if (ptsPer >= 0.55 && form >= 3.2) {
     return { label: '✅ Good Value', color: '#7fff00' }
   }
 
-  if (score >= 28) {
+  if (ptsPer >= 0.35) {
     return { label: '📉 Poor Value', color: '#ffd700' }
   }
 
   return { label: '🚫 Avoid', color: '#ff4444' }
 }
 
-// Completely independent of value — pure form flair emoji
-function formEmoji(form) {
-  const f = parseFloat(form || 0)
-  if (f >= 6) return { emoji: '🔥 On Fire', color: '#00ff87' }
-  if (f >= 4) return { emoji: '😁 Good',    color: '#7fff00' }
-  if (f >= 2) return { emoji: '❄️ Cold',    color: '#00b2ff' }
-  return           { emoji: '💀 Terrible',  color: '#ff4444' }
+function formBadge(form) {
+  if (form >= 8) return { label: '🔥 On Fire', color: '#00ff87' }
+  if (form >= 6) return { label: '📈 Hot', color: '#7fff00' }
+  if (form >= 4) return { label: '😐 OK', color: '#ffd700' }
+  if (form >= 2) return { label: '📉 Cold', color: '#ff8800' }
+  return { label: '💀 Terrible', color: '#ff4444' }
 }
 
 function PlayerCard({ p }) {
-  const val  = valueRating(p)
-  const form = formEmoji(p.form)
+  const val = valueRating(p)
+  const form = formBadge(p.form)
   const photoUrl = p.code
     ? `https://resources.premierleague.com/premierleague/photos/players/110x140/p${p.code}.png`
     : null
@@ -149,28 +112,13 @@ function PlayerCard({ p }) {
           ))}
         </div>
 
-        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
-          {/* Value tag */}
-          <span style={{
-            fontSize: '11px', padding: '3px 8px', borderRadius: '4px',
-            background: '#0e1117', color: val.color, fontWeight: 'bold'
-          }}>
+        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+          <span style={{ fontSize: '11px', padding: '3px 8px', borderRadius: '4px', background: '#0e1117', color: val.color, fontWeight: 'bold' }}>
             {val.label}
           </span>
-
-          {/* Form emoji flair — independent of value */}
-          {p.status !== 'a' ? (
-        <span style={{ fontSize: '11px', padding: '3px 8px', borderRadius: '4px', background: '#0e1117', color: '#ff8800' }}>
-        🤕 Injured
-        </span>
-        ) : (
-        <span style={{
-    fontSize: '11px', padding: '3px 8px', borderRadius: '4px',
-    background: '#0e1117', color: form.color, fontWeight: 'bold'
-    }}>
-    {form.emoji}
-      </span>
-  )}    
+          <span style={{ fontSize: '11px', padding: '3px 8px', borderRadius: '4px', background: '#0e1117', color: p.status !== 'a' ? '#ff8800' : form.color }}>
+            {p.status !== 'a' ? '🤕 Injured' : form.label}
+          </span>
         </div>
 
         <div style={{ marginTop: '8px', fontSize: '11px', color: '#fff', fontWeight: 'bold' }}>
@@ -182,12 +130,12 @@ function PlayerCard({ p }) {
 }
 
 export default function Players() {
-  const [players, setPlayers]   = useState([])
-  const [loading, setLoading]   = useState(true)
+  const [players, setPlayers] = useState([])
+  const [loading, setLoading] = useState(true)
   const [position, setPosition] = useState('All')
-  const [sortBy, setSortBy]     = useState('total_points')
-  const [search, setSearch]     = useState('')
-  const [view, setView]         = useState('cards')
+  const [sortBy, setSortBy] = useState('total_points')
+  const [search, setSearch] = useState('')
+  const [view, setView] = useState('cards')
 
   useEffect(() => {
     setLoading(true)
@@ -214,12 +162,7 @@ export default function Players() {
         />
         {POSITIONS.map(pos => (
           <button key={pos} onClick={() => setPosition(pos)}
-            style={{
-              padding: '8px 14px', borderRadius: '6px', border: '1px solid #00ff87',
-              background: position === pos ? '#00ff87' : 'transparent',
-              color: position === pos ? '#000' : '#fff',
-              cursor: 'pointer', fontWeight: position === pos ? 'bold' : 'normal'
-            }}>
+            style={{ padding: '8px 14px', borderRadius: '6px', border: '1px solid #00ff87', background: position === pos ? '#00ff87' : 'transparent', color: position === pos ? '#000' : '#fff', cursor: 'pointer', fontWeight: position === pos ? 'bold' : 'normal' }}>
             {pos}
           </button>
         ))}
@@ -236,11 +179,7 @@ export default function Players() {
         <div style={{ display: 'flex', gap: '4px' }}>
           {['cards', 'table'].map(v => (
             <button key={v} onClick={() => setView(v)}
-              style={{
-                padding: '8px 12px', borderRadius: '6px', border: '1px solid #2a2f3e',
-                background: view === v ? '#2a2f3e' : 'transparent',
-                color: '#fff', cursor: 'pointer'
-              }}>
+              style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #2a2f3e', background: view === v ? '#2a2f3e' : 'transparent', color: '#fff', cursor: 'pointer' }}>
               {v === 'cards' ? '⊞' : '☰'}
             </button>
           ))}
@@ -261,38 +200,34 @@ export default function Players() {
           <table style={{ width: '100%', borderCollapse: 'collapse', background: '#1a1f2e', borderRadius: '8px', overflow: 'hidden' }}>
             <thead style={{ background: '#0e1117' }}>
               <tr>
-                {['Player', 'Team', 'Pos', 'Price', 'Pts', 'Form', 'PPG', 'Value', 'Form', 'Selected %'].map(h => (
+                {['Player', 'Team', 'Pos', 'Price', 'Pts', 'Form', 'PPG', 'Value', 'Form Rating', 'Selected %'].map(h => (
                   <th key={h} style={{ padding: '10px 12px', textAlign: 'left', borderBottom: '1px solid #2a2f3e', color: '#aaa', fontSize: '13px' }}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {filtered.map(p => {
-                const val  = valueRating(p)
-                const form = formEmoji(p.form)
+                const val = valueRating(p)
+                const form = formBadge(p.form)
                 return (
                   <tr key={p.id}
                     onMouseEnter={e => e.currentTarget.style.background = '#222736'}
                     onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
                     <td style={{ padding: '10px 12px', borderBottom: '1px solid #1a1f2e', fontWeight: 'bold' }}>
-                      {p.code && (
-                        <img src={`https://resources.premierleague.com/premierleague/photos/players/110x140/p${p.code}.png`}
-                          style={{ width: '24px', height: '30px', objectFit: 'contain', marginRight: '8px', verticalAlign: 'middle' }}
-                          onError={e => e.target.style.display = 'none'} />
-                      )}
+                      {p.code && <img src={`https://resources.premierleague.com/premierleague/photos/players/110x140/p${p.code}.png`}
+                        style={{ width: '24px', height: '30px', objectFit: 'contain', marginRight: '8px', verticalAlign: 'middle' }}
+                        onError={e => e.target.style.display = 'none'} />}
                       {p.web_name}
                     </td>
                     <td style={{ padding: '10px 12px', borderBottom: '1px solid #1a1f2e', color: '#aaa' }}>{p.team_name}</td>
-                    <td style={{ padding: '10px 12px', borderBottom: '1px solid #1a1f2e' }}>
-                      <span style={{ background: '#2a2f3e', padding: '2px 8px', borderRadius: '4px', fontSize: '12px' }}>{p.position}</span>
-                    </td>
+                    <td style={{ padding: '10px 12px', borderBottom: '1px solid #1a1f2e' }}><span style={{ background: '#2a2f3e', padding: '2px 8px', borderRadius: '4px', fontSize: '12px' }}>{p.position}</span></td>
                     <td style={{ padding: '10px 12px', borderBottom: '1px solid #1a1f2e', color: '#00ff87', fontWeight: 'bold' }}>£{p.price}m</td>
                     <td style={{ padding: '10px 12px', borderBottom: '1px solid #1a1f2e', fontWeight: 'bold' }}>{p.total_points}</td>
                     <td style={{ padding: '10px 12px', borderBottom: '1px solid #1a1f2e' }}>{p.form}</td>
                     <td style={{ padding: '10px 12px', borderBottom: '1px solid #1a1f2e' }}>{p.points_per_game}</td>
                     <td style={{ padding: '10px 12px', borderBottom: '1px solid #1a1f2e', color: val.color, fontWeight: 'bold' }}>{val.label}</td>
-                    <td style={{ padding: '10px 12px', borderBottom: '1px solid #1a1f2e', color: p.status !== 'a' ? '#ff8800' : form.color, fontSize: '16px' }}>
-                      {p.status !== 'a' ? '🤕' : form.emoji}
+                    <td style={{ padding: '10px 12px', borderBottom: '1px solid #1a1f2e', color: p.status !== 'a' ? '#ff8800' : form.color }}>
+                      {p.status !== 'a' ? '🤕 Injured' : form.label}
                     </td>
                     <td style={{ padding: '10px 12px', borderBottom: '1px solid #1a1f2e', color: '#fff', fontWeight: 'bold' }}>{p.selected_by_percent}%</td>
                   </tr>
