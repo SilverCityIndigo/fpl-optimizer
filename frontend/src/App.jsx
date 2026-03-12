@@ -7,8 +7,27 @@ import PriceChanges from './pages/PriceChanges'
 import ChipAdvisor from './pages/ChipAdvisor'
 import './index.css'
 
+const API = import.meta.env.VITE_API_URL || 'https://fpl-optimizer-production.up.railway.app'
+
 export default function App() {
   const [page, setPage] = useState('players')
+  const [syncing, setSyncing] = useState(false)
+  const [syncMsg, setSyncMsg] = useState('')
+
+  async function handleSync() {
+    setSyncing(true)
+    setSyncMsg('')
+    try {
+      const res = await fetch(`${API}/admin/sync`, { method: 'POST' })
+      const data = await res.json()
+      setSyncMsg('✅ Synced!')
+    } catch (e) {
+      setSyncMsg('❌ Failed')
+    } finally {
+      setSyncing(false)
+      setTimeout(() => setSyncMsg(''), 4000)
+    }
+  }
 
   return (
     <div style={{ minHeight: '100vh', background: '#0e1117', color: '#fff', fontFamily: 'sans-serif' }}>
@@ -18,15 +37,39 @@ export default function App() {
           <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.85)', lineHeight: '1', fontWeight: 'bold' }}>by SilverCityIndigo</span>
         </div>
 
-        {/* Nav order: Players, Transfers, Captain, Chips, Scout, Prices */}
-        <button onClick={() => setPage('players')}      style={navBtn(page === 'players')}>      👤 Players</button>
-        <button onClick={() => setPage('transfers')}    style={navBtn(page === 'transfers')}>    🔄 Transfers</button>
-        <button onClick={() => setPage('captain')}      style={navBtn(page === 'captain')}>      ⚡ Captain</button>
-        <button onClick={() => setPage('chips')}        style={navBtn(page === 'chips')}>        🃏 Chips</button>
-        <button onClick={() => setPage('differentials')} style={navBtn(page === 'differentials')}>🔍 Scout</button>
-        <button onClick={() => setPage('pricechanges')} style={navBtn(page === 'pricechanges')}> 💰 Prices</button>
+        <button onClick={() => setPage('players')}        style={navBtn(page === 'players')}>      👤 Players</button>
+        <button onClick={() => setPage('transfers')}      style={navBtn(page === 'transfers')}>    🔄 Transfers</button>
+        <button onClick={() => setPage('captain')}        style={navBtn(page === 'captain')}>      ⚡ Captain</button>
+        <button onClick={() => setPage('chips')}          style={navBtn(page === 'chips')}>        🃏 Chips</button>
+        <button onClick={() => setPage('differentials')}  style={navBtn(page === 'differentials')}>🔍 Scout</button>
+        <button onClick={() => setPage('pricechanges')}   style={navBtn(page === 'pricechanges')}> 💰 Prices</button>
 
-        <div style={{ marginLeft: 'auto' }}>
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '12px' }}>
+          {/* Sync button */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            {syncMsg && <span style={{ fontSize: '12px', color: syncMsg.startsWith('✅') ? '#00ff87' : '#ff4444' }}>{syncMsg}</span>}
+            <button
+              onClick={handleSync}
+              disabled={syncing}
+              title="Sync latest FPL data"
+              style={{
+                background: 'transparent',
+                border: '1px solid rgba(255,255,255,0.2)',
+                borderRadius: '6px',
+                color: syncing ? '#aaa' : 'rgba(255,255,255,0.6)',
+                cursor: syncing ? 'not-allowed' : 'pointer',
+                padding: '4px 10px',
+                fontSize: '13px',
+                transition: 'color 0.15s, border-color 0.15s'
+              }}
+              onMouseEnter={e => { if (!syncing) { e.currentTarget.style.color = '#fff'; e.currentTarget.style.borderColor = '#fff' }}}
+              onMouseLeave={e => { e.currentTarget.style.color = syncing ? '#aaa' : 'rgba(255,255,255,0.6)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.2)' }}
+            >
+              {syncing ? '⏳ Syncing...' : '🔃 Sync'}
+            </button>
+          </div>
+
+          {/* GitHub link */}
           <a href="https://github.com/SilverCityIndigo" target="_blank" rel="noreferrer"
             style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'rgba(255,255,255,0.6)', textDecoration: 'none', fontSize: '13px', transition: 'color 0.15s' }}
             onMouseEnter={e => e.currentTarget.style.color = '#fff'}
