@@ -160,17 +160,17 @@ function PlayerCard({ p }) {
 
           {/* Form emoji flair — independent of value */}
           {p.status !== 'a' ? (
-            <span style={{ fontSize: '11px', padding: '3px 8px', borderRadius: '4px', background: '#0e1117', color: '#ff8800' }}>
-              🤕 Injured
-            </span>
-          ) : (
-            <span style={{
-              fontSize: '14px', padding: '3px 6px', borderRadius: '4px',
-              background: '#0e1117', color: form.color
-            }}>
-              {form.emoji}
-            </span>
-          )}
+        <span style={{ fontSize: '11px', padding: '3px 8px', borderRadius: '4px', background: '#0e1117', color: '#ff8800' }}>
+        🤕 Injured
+        </span>
+        ) : (
+        <span style={{
+    fontSize: '11px', padding: '3px 8px', borderRadius: '4px',
+    background: '#0e1117', color: form.color, fontWeight: 'bold'
+    }}>
+    {form.emoji}
+      </span>
+  )}    
         </div>
 
         <div style={{ marginTop: '8px', fontSize: '11px', color: '#fff', fontWeight: 'bold' }}>
