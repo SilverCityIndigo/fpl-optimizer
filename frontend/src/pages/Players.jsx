@@ -74,10 +74,10 @@ function valueRating(player) {
 // Completely independent of value — pure form flair emoji
 function formEmoji(form) {
   const f = parseFloat(form || 0)
-  if (f >= 6) return { emoji: '🔥', color: '#00ff87' }
-  if (f >= 4) return { emoji: '😁', color: '#7fff00' }
-  if (f >= 2) return { emoji: '❄️', color: '#00b2ff' }
-  return           { emoji: '💀', color: '#ff4444' }
+  if (f >= 6) return { emoji: '🔥 On Fire', color: '#00ff87' }
+  if (f >= 4) return { emoji: '😁 Good',    color: '#7fff00' }
+  if (f >= 2) return { emoji: '❄️ Cold',    color: '#00b2ff' }
+  return           { emoji: '💀 Terrible',  color: '#ff4444' }
 }
 
 function PlayerCard({ p }) {
