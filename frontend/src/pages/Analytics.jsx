@@ -1,140 +1,100 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import {
-  ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, ReferenceLine, LineChart, Line, Area, AreaChart
-} from 'recharts'
+  Chart as ChartJS,
+  LinearScale, PointElement, LineElement, Tooltip as ChartTooltip,
+  Legend, CategoryScale, Filler
+} from 'chart.js'
+import { Scatter, Line } from 'react-chartjs-2'
 import { getPlayers, getPlayerHistory } from '../api'
+
+ChartJS.register(LinearScale, PointElement, LineElement, ChartTooltip, Legend, CategoryScale, Filler)
 
 const POSITIONS = ['All', 'GKP', 'DEF', 'MID', 'FWD']
 const POS_COLORS = { GKP: '#f5a623', DEF: '#00b2ff', MID: '#00ff87', FWD: '#ff4444' }
 
-// ─── xG Scatter Tooltip ────────────────────────────────────────────────────
-function XGTooltip({ active, payload }) {
-  if (!active || !payload?.length) return null
-  const d = payload[0].payload
-  const diff = (d.goals - d.xg).toFixed(2)
-  const over = d.goals >= d.xg
-  return (
-    <div style={{
-      background: '#0e1117', border: '1px solid #2a2f3e', borderRadius: '10px',
-      padding: '12px 16px', fontSize: '13px', minWidth: '180px',
-      boxShadow: '0 8px 24px rgba(0,0,0,0.5)'
-    }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-        {d.code && (
-          <img
-            src={`https://resources.premierleague.com/premierleague/photos/players/110x140/p${d.code}.png`}
-            style={{ height: '40px', objectFit: 'contain' }}
-            onError={e => e.target.style.display = 'none'}
-          />
-        )}
-        <div>
-          <div style={{ fontWeight: 'bold', color: '#fff' }}>{d.web_name}</div>
-          <div style={{ color: '#aaa', fontSize: '11px' }}>{d.team_name} · {d.position}</div>
-        </div>
-      </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '24px' }}>
-          <span style={{ color: '#aaa' }}>Goals</span>
-          <span style={{ color: '#fff', fontWeight: 'bold' }}>{d.goals}</span>
-        </div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '24px' }}>
-          <span style={{ color: '#aaa' }}>xG</span>
-          <span style={{ color: '#fff', fontWeight: 'bold' }}>{d.xg}</span>
-        </div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '24px', borderTop: '1px solid #2a2f3e', paddingTop: '4px', marginTop: '2px' }}>
-          <span style={{ color: '#aaa' }}>Diff</span>
-          <span style={{ color: over ? '#00ff87' : '#ff4444', fontWeight: 'bold' }}>
-            {over ? '+' : ''}{diff}
-          </span>
-        </div>
-        <div style={{ fontSize: '11px', color: over ? '#00ff87' : '#ff8800', marginTop: '2px', fontStyle: 'italic' }}>
-          {over ? '🔥 Overperforming xG' : '⏳ Due a return'}
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// ─── Form Timeline Tooltip ──────────────────────────────────────────────────
-function TimelineTooltip({ active, payload, label }) {
-  if (!active || !payload?.length) return null
-  const d = payload[0]?.payload
-  return (
-    <div style={{
-      background: '#0e1117', border: '1px solid #2a2f3e', borderRadius: '10px',
-      padding: '12px 16px', fontSize: '13px',
-      boxShadow: '0 8px 24px rgba(0,0,0,0.5)'
-    }}>
-      <div style={{ color: '#aaa', marginBottom: '6px', fontSize: '11px' }}>GW {d?.round}</div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '20px' }}>
-          <span style={{ color: '#aaa' }}>Points</span>
-          <span style={{ color: '#00ff87', fontWeight: 'bold' }}>{d?.total_points}</span>
-        </div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '20px' }}>
-          <span style={{ color: '#aaa' }}>Minutes</span>
-          <span style={{ color: '#fff' }}>{d?.minutes}'</span>
-        </div>
-        {d?.goals_scored > 0 && (
-          <div style={{ display: 'flex', justifyContent: 'space-between', gap: '20px' }}>
-            <span style={{ color: '#aaa' }}>Goals</span>
-            <span style={{ color: '#ffd700', fontWeight: 'bold' }}>{d.goals_scored} ⚽</span>
-          </div>
-        )}
-        {d?.assists > 0 && (
-          <div style={{ display: 'flex', justifyContent: 'space-between', gap: '20px' }}>
-            <span style={{ color: '#aaa' }}>Assists</span>
-            <span style={{ color: '#00b2ff', fontWeight: 'bold' }}>{d.assists} 🅰️</span>
-          </div>
-        )}
-        {d?.bonus > 0 && (
-          <div style={{ display: 'flex', justifyContent: 'space-between', gap: '20px' }}>
-            <span style={{ color: '#aaa' }}>Bonus</span>
-            <span style={{ color: '#ff8800' }}>{d.bonus}</span>
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
-
-// ─── Custom Scatter Dot ─────────────────────────────────────────────────────
-function CustomDot(props) {
-  const { cx, cy, payload, selectedPlayer, onSelect } = props
-  const isSelected = selectedPlayer?.id === payload.id
-  const color = POS_COLORS[payload.position] || '#aaa'
-  return (
-    <circle
-      cx={cx} cy={cy}
-      r={isSelected ? 8 : 5}
-      fill={color}
-      fillOpacity={isSelected ? 1 : 0.75}
-      stroke={isSelected ? '#fff' : color}
-      strokeWidth={isSelected ? 2 : 0}
-      style={{ cursor: 'pointer', transition: 'r 0.15s' }}
-      onClick={() => onSelect(payload)}
-    />
-  )
-}
-
-// ─── xG Scatter Panel ───────────────────────────────────────────────────────
+// ─── xG Scatter ─────────────────────────────────────────────────────────────
 function XGScatter({ players }) {
   const [position, setPosition] = useState('All')
   const [selected, setSelected] = useState(null)
   const [history, setHistory] = useState([])
   const [histLoading, setHistLoading] = useState(false)
+  const chartRef = useRef(null)
 
-  const data = players
+  const filtered = players
     .filter(p => position === 'All' || p.position === position)
     .filter(p => p.xg != null && p.goals_scored != null && p.minutes > 180)
-    .map(p => ({
-      ...p,
-      xg: parseFloat(p.xg || 0),
-      goals: p.goals_scored,
-    }))
 
-  const maxVal = Math.max(...data.map(p => Math.max(p.xg, p.goals)), 1) + 1
+  const positionsPresent = [...new Set(filtered.map(p => p.position))]
+  const datasets = positionsPresent.map(pos => ({
+    label: pos,
+    data: filtered
+      .filter(p => p.position === pos)
+      .map(p => ({
+        x: parseFloat(p.xg || 0),
+        y: p.goals_scored,
+        player: p,
+      })),
+    backgroundColor: POS_COLORS[pos] + 'cc',
+    pointRadius: 6,
+    pointHoverRadius: 9,
+  }))
+
+  const maxVal = Math.max(...filtered.map(p => Math.max(parseFloat(p.xg || 0), p.goals_scored)), 1) + 1
+  const refLine = {
+    label: 'xG = Goals',
+    data: [{ x: 0, y: 0 }, { x: maxVal, y: maxVal }],
+    type: 'line',
+    borderColor: '#2a2f3e',
+    borderDash: [6, 4],
+    borderWidth: 2,
+    pointRadius: 0,
+    fill: false,
+  }
+
+  const scatterData = { datasets: [...datasets, refLine] }
+
+  const scatterOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    animation: false,
+    onClick: (event, elements) => {
+      if (!elements.length) return
+      const el = elements[0]
+      const ds = scatterData.datasets[el.datasetIndex]
+      const point = ds.data[el.index]
+      if (point?.player) handleSelect(point.player)
+    },
+    plugins: {
+      legend: { labels: { color: '#aaa', boxWidth: 10, font: { size: 12 } } },
+      tooltip: {
+        callbacks: {
+          label: (ctx) => {
+            const p = ctx.raw?.player
+            if (!p) return ''
+            const diff = (p.goals_scored - parseFloat(p.xg || 0)).toFixed(2)
+            const sign = diff >= 0 ? '+' : ''
+            return [
+              `${p.web_name} (${p.team_name})`,
+              `Goals: ${p.goals_scored}  xG: ${parseFloat(p.xg).toFixed(2)}`,
+              `Diff: ${sign}${diff} ${diff >= 0 ? '🔥 Overperforming' : '⏳ Due a return'}`,
+            ]
+          }
+        },
+        backgroundColor: '#0e1117', borderColor: '#2a2f3e', borderWidth: 1,
+        titleColor: '#fff', bodyColor: '#aaa', padding: 12,
+      }
+    },
+    scales: {
+      x: {
+        title: { display: true, text: 'Expected Goals (xG)', color: '#aaa', font: { size: 13 } },
+        ticks: { color: '#aaa' }, grid: { color: '#1e2330' }, min: 0, max: maxVal,
+      },
+      y: {
+        title: { display: true, text: 'Actual Goals', color: '#aaa', font: { size: 13 } },
+        ticks: { color: '#aaa' }, grid: { color: '#1e2330' }, min: 0, max: maxVal,
+      }
+    }
+  }
 
   async function handleSelect(player) {
     setSelected(player)
@@ -142,17 +102,14 @@ function XGScatter({ players }) {
     try {
       const res = await getPlayerHistory(player.id)
       setHistory(res.data)
-    } catch {
-      setHistory([])
-    }
+    } catch { setHistory([]) }
     setHistLoading(false)
   }
 
   return (
     <div>
-      {/* Position filter */}
       <div style={{ display: 'flex', gap: '8px', marginBottom: '20px', flexWrap: 'wrap', alignItems: 'center' }}>
-        <span style={{ color: '#aaa', fontSize: '13px', marginRight: '4px' }}>Position:</span>
+        <span style={{ color: '#aaa', fontSize: '13px' }}>Position:</span>
         {POSITIONS.map(pos => (
           <button key={pos} onClick={() => setPosition(pos)} style={{
             padding: '5px 14px', borderRadius: '6px',
@@ -162,70 +119,27 @@ function XGScatter({ players }) {
             cursor: 'pointer', fontWeight: position === pos ? 'bold' : 'normal', fontSize: '13px'
           }}>{pos}</button>
         ))}
-        <span style={{ color: '#555', fontSize: '12px', marginLeft: 'auto' }}>{data.length} players · click a dot to see their season timeline</span>
+        <span style={{ color: '#555', fontSize: '12px', marginLeft: 'auto' }}>
+          {filtered.length} players · click a dot to see their season timeline
+        </span>
       </div>
 
-      {/* Legend */}
-      <div style={{ display: 'flex', gap: '16px', marginBottom: '16px', flexWrap: 'wrap' }}>
-        {Object.entries(POS_COLORS).map(([pos, color]) => (
-          <div key={pos} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: color }} />
-            <span style={{ color: '#aaa', fontSize: '12px' }}>{pos}</span>
-          </div>
-        ))}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginLeft: '8px' }}>
-          <div style={{ width: '24px', height: '1px', background: '#444', borderTop: '2px dashed #444' }} />
-          <span style={{ color: '#555', fontSize: '12px' }}>xG = Goals line</span>
-        </div>
+      <div style={{ height: '420px', marginBottom: '12px' }}>
+        <Scatter ref={chartRef} data={scatterData} options={scatterOptions} />
       </div>
 
-      <ResponsiveContainer width="100%" height={420}>
-        <ScatterChart margin={{ top: 10, right: 20, bottom: 40, left: 20 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#1e2330" />
-          <XAxis
-            dataKey="xg" type="number" name="xG" domain={[0, maxVal]}
-            label={{ value: 'Expected Goals (xG)', position: 'insideBottom', offset: -20, fill: '#aaa', fontSize: 13 }}
-            tick={{ fill: '#aaa', fontSize: 12 }} tickLine={false} axisLine={{ stroke: '#2a2f3e' }}
-          />
-          <YAxis
-            dataKey="goals" type="number" name="Goals" domain={[0, maxVal]}
-            label={{ value: 'Actual Goals', angle: -90, position: 'insideLeft', offset: 10, fill: '#aaa', fontSize: 13 }}
-            tick={{ fill: '#aaa', fontSize: 12 }} tickLine={false} axisLine={{ stroke: '#2a2f3e' }}
-          />
-          <ReferenceLine
-            segment={[{ x: 0, y: 0 }, { x: maxVal, y: maxVal }]}
-            stroke="#2a2f3e" strokeDasharray="6 4" strokeWidth={2}
-          />
-          <Tooltip content={<XGTooltip />} cursor={false} />
-          <Scatter
-            data={data}
-            shape={(props) => (
-              <CustomDot {...props} selectedPlayer={selected} onSelect={handleSelect} />
-            )}
-          />
-        </ScatterChart>
-      </ResponsiveContainer>
-
-      {/* Above/below line labels */}
-      <div style={{ display: 'flex', gap: '16px', justifyContent: 'center', marginTop: '8px', marginBottom: '24px' }}>
+      <div style={{ display: 'flex', gap: '16px', justifyContent: 'center', marginBottom: '24px' }}>
         <span style={{ fontSize: '12px', color: '#00ff87' }}>▲ Above line = overperforming xG</span>
         <span style={{ fontSize: '12px', color: '#ff8800' }}>▼ Below line = due a return</span>
       </div>
 
-      {/* Selected player timeline */}
       {selected && (
-        <div style={{
-          background: '#1a1f2e', borderRadius: '12px', padding: '20px',
-          border: `1px solid ${POS_COLORS[selected.position] || '#00ff87'}`,
-          marginTop: '8px'
-        }}>
+        <div style={{ background: '#0e1117', borderRadius: '12px', padding: '20px', border: `1px solid ${POS_COLORS[selected.position] || '#00ff87'}` }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '16px', flexWrap: 'wrap' }}>
             {selected.code && (
-              <img
-                src={`https://resources.premierleague.com/premierleague/photos/players/110x140/p${selected.code}.png`}
+              <img src={`https://resources.premierleague.com/premierleague/photos/players/110x140/p${selected.code}.png`}
                 style={{ height: '60px', objectFit: 'contain' }}
-                onError={e => e.target.style.display = 'none'}
-              />
+                onError={e => e.target.style.display = 'none'} />
             )}
             <div>
               <div style={{ fontWeight: 'bold', fontSize: '18px' }}>{selected.web_name}</div>
@@ -233,38 +147,53 @@ function XGScatter({ players }) {
             </div>
             <div style={{ marginLeft: 'auto', display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
               {[
-                ['Goals', selected.goals, '#ffd700'],
-                ['xG', parseFloat(selected.xg).toFixed(2), '#00b2ff'],
-                ['Diff', ((selected.goals || 0) - parseFloat(selected.xg || 0)).toFixed(2), (selected.goals || 0) >= parseFloat(selected.xg || 0) ? '#00ff87' : '#ff4444'],
+                ['Goals', selected.goals_scored, '#ffd700'],
+                ['xG', parseFloat(selected.xg || 0).toFixed(2), '#00b2ff'],
+                ['Diff', ((selected.goals_scored || 0) - parseFloat(selected.xg || 0)).toFixed(2),
+                  (selected.goals_scored || 0) >= parseFloat(selected.xg || 0) ? '#00ff87' : '#ff4444'],
               ].map(([label, val, color]) => (
-                <div key={label} style={{ background: '#0e1117', borderRadius: '8px', padding: '8px 14px', textAlign: 'center' }}>
+                <div key={label} style={{ background: '#1a1f2e', borderRadius: '8px', padding: '8px 14px', textAlign: 'center' }}>
                   <div style={{ color: '#aaa', fontSize: '10px', marginBottom: '2px' }}>{label}</div>
                   <div style={{ color, fontWeight: 'bold', fontSize: '16px' }}>{val}</div>
                 </div>
               ))}
             </div>
           </div>
-          <div style={{ color: '#aaa', fontSize: '12px', marginBottom: '8px' }}>GW Points Timeline</div>
+          <div style={{ color: '#aaa', fontSize: '12px', marginBottom: '10px' }}>GW Points Timeline</div>
           {histLoading ? (
             <p style={{ color: '#aaa', fontSize: '13px' }}>Loading history...</p>
           ) : history.length === 0 ? (
             <p style={{ color: '#555', fontSize: '13px' }}>No gameweek history found.</p>
           ) : (
-            <ResponsiveContainer width="100%" height={200}>
-              <AreaChart data={history} margin={{ top: 5, right: 10, bottom: 5, left: 0 }}>
-                <defs>
-                  <linearGradient id="ptsFill" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#00ff87" stopOpacity={0.3} />
-                    <stop offset="95%" stopColor="#00ff87" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#1e2330" />
-                <XAxis dataKey="round" tick={{ fill: '#aaa', fontSize: 11 }} tickLine={false} axisLine={false} label={{ value: 'Gameweek', position: 'insideBottom', offset: -2, fill: '#555', fontSize: 11 }} />
-                <YAxis tick={{ fill: '#aaa', fontSize: 11 }} tickLine={false} axisLine={false} />
-                <Tooltip content={<TimelineTooltip />} />
-                <Area type="monotone" dataKey="total_points" stroke="#00ff87" strokeWidth={2} fill="url(#ptsFill)" dot={{ fill: '#00ff87', r: 3 }} activeDot={{ r: 5 }} />
-              </AreaChart>
-            </ResponsiveContainer>
+            <div style={{ height: '200px' }}>
+              <Line
+                data={{
+                  labels: history.map(h => `GW${h.round}`),
+                  datasets: [{
+                    label: selected.web_name,
+                    data: history.map(h => h.total_points),
+                    borderColor: '#00ff87',
+                    backgroundColor: 'rgba(0,255,135,0.15)',
+                    borderWidth: 2, pointRadius: 3, pointHoverRadius: 6,
+                    fill: true, tension: 0.3,
+                  }]
+                }}
+                options={{
+                  responsive: true, maintainAspectRatio: false, animation: false,
+                  plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                      backgroundColor: '#0e1117', borderColor: '#2a2f3e', borderWidth: 1,
+                      titleColor: '#aaa', bodyColor: '#fff',
+                    }
+                  },
+                  scales: {
+                    x: { ticks: { color: '#aaa', font: { size: 10 } }, grid: { color: '#1e2330' } },
+                    y: { ticks: { color: '#aaa', font: { size: 10 } }, grid: { color: '#1e2330' } }
+                  }
+                }}
+              />
+            </div>
           )}
         </div>
       )}
@@ -272,7 +201,7 @@ function XGScatter({ players }) {
   )
 }
 
-// ─── Standalone Form Timeline Panel ─────────────────────────────────────────
+// ─── Form Timeline ───────────────────────────────────────────────────────────
 function FormTimeline({ players }) {
   const [search, setSearch] = useState('')
   const [selected, setSelected] = useState(null)
@@ -280,35 +209,36 @@ function FormTimeline({ players }) {
   const [loading, setLoading] = useState(false)
   const [compare, setCompare] = useState(null)
   const [compareHistory, setCompareHistory] = useState([])
+  const [compareSearch, setCompareSearch] = useState('')
 
   const filtered = players
     .filter(p => p.web_name.toLowerCase().includes(search.toLowerCase()))
     .slice(0, 30)
 
-  async function selectPlayer(player, isCompare = false) {
-    if (isCompare) {
-      setCompare(player)
+  const filteredCompare = players
+    .filter(p => p.web_name.toLowerCase().includes(compareSearch.toLowerCase()))
+    .filter(p => p.id !== selected?.id)
+    .slice(0, 20)
+
+  async function selectPlayer(player) {
+    setSelected(player)
+    setSearch('')
+    setLoading(true)
+    try {
       const res = await getPlayerHistory(player.id)
-      setCompareHistory(res.data)
-    } else {
-      setSelected(player)
-      setLoading(true)
-      try {
-        const res = await getPlayerHistory(player.id)
-        setHistory(res.data)
-      } catch { setHistory([]) }
-      setLoading(false)
-    }
+      setHistory(res.data)
+    } catch { setHistory([]) }
+    setLoading(false)
   }
 
-  // Merge histories by round for comparison
-  const mergedHistory = history.map(h => {
-    const comp = compareHistory.find(c => c.round === h.round)
-    return {
-      ...h,
-      compare_points: comp?.total_points ?? null
-    }
-  })
+  async function selectCompare(player) {
+    setCompare(player)
+    setCompareSearch('')
+    try {
+      const res = await getPlayerHistory(player.id)
+      setCompareHistory(res.data)
+    } catch { setCompareHistory([]) }
+  }
 
   const avgPts = history.length
     ? (history.reduce((s, h) => s + h.total_points, 0) / history.length).toFixed(1)
@@ -317,68 +247,110 @@ function FormTimeline({ players }) {
     ? history.reduce((best, h) => h.total_points > best.total_points ? h : best, history[0])
     : null
 
+  const lineData = {
+    labels: history.map(h => `GW${h.round}`),
+    datasets: [
+      {
+        label: selected?.web_name || 'Player',
+        data: history.map(h => h.total_points),
+        borderColor: '#00ff87',
+        backgroundColor: 'rgba(0,255,135,0.12)',
+        borderWidth: 2.5, pointRadius: 3, pointHoverRadius: 6,
+        fill: true, tension: 0.3,
+      },
+      ...(compare && compareHistory.length > 0 ? [{
+        label: compare.web_name,
+        data: history.map(h => {
+          const match = compareHistory.find(c => c.round === h.round)
+          return match ? match.total_points : null
+        }),
+        borderColor: '#ff8800',
+        backgroundColor: 'rgba(255,136,0,0.08)',
+        borderWidth: 2, borderDash: [5, 3],
+        pointRadius: 3, pointHoverRadius: 5,
+        fill: true, tension: 0.3, spanGaps: false,
+      }] : [])
+    ]
+  }
+
+  const lineOptions = {
+    responsive: true, maintainAspectRatio: false, animation: false,
+    plugins: {
+      legend: { display: !!compare, labels: { color: '#aaa', boxWidth: 12, font: { size: 12 } } },
+      tooltip: {
+        backgroundColor: '#0e1117', borderColor: '#2a2f3e', borderWidth: 1,
+        titleColor: '#aaa', bodyColor: '#fff',
+        callbacks: {
+          afterBody: (items) => {
+            const h = history[items[0].dataIndex]
+            if (!h) return []
+            const lines = []
+            if (h.minutes !== undefined) lines.push(`Minutes: ${h.minutes}'`)
+            if (h.goals_scored > 0) lines.push(`Goals: ${h.goals_scored} ⚽`)
+            if (h.assists > 0) lines.push(`Assists: ${h.assists} 🅰️`)
+            if (h.bonus > 0) lines.push(`Bonus: ${h.bonus}`)
+            return lines
+          }
+        }
+      }
+    },
+    scales: {
+      x: {
+        ticks: { color: '#aaa', font: { size: 11 } }, grid: { color: '#1e2330' },
+        title: { display: true, text: 'Gameweek', color: '#555', font: { size: 12 } }
+      },
+      y: { ticks: { color: '#aaa', font: { size: 11 } }, grid: { color: '#1e2330' } }
+    }
+  }
+
   return (
     <div>
-      {/* Search */}
-      <div style={{ display: 'flex', gap: '12px', marginBottom: '16px', flexWrap: 'wrap', alignItems: 'flex-start' }}>
-        <div style={{ flex: 1, minWidth: '220px' }}>
-          <input
-            placeholder="Search player..."
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            style={{
-              width: '100%', padding: '10px 14px', borderRadius: '8px',
-              border: '1px solid #2a2f3e', background: '#0e1117',
-              color: '#fff', fontSize: '14px', outline: 'none'
-            }}
-          />
-          {search && filtered.length > 0 && (
-            <div style={{
-              position: 'absolute', zIndex: 100, background: '#1a1f2e',
-              border: '1px solid #2a2f3e', borderRadius: '8px', marginTop: '4px',
-              maxHeight: '240px', overflowY: 'auto', minWidth: '240px'
-            }}>
-              {filtered.map(p => (
-                <div key={p.id}
-                  onClick={() => { selectPlayer(p); setSearch('') }}
-                  style={{
-                    padding: '10px 14px', cursor: 'pointer', display: 'flex',
-                    alignItems: 'center', gap: '10px', borderBottom: '1px solid #0e1117'
-                  }}
-                  onMouseEnter={e => e.currentTarget.style.background = '#0e1117'}
-                  onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                  {p.code && (
-                    <img src={`https://resources.premierleague.com/premierleague/photos/players/110x140/p${p.code}.png`}
-                      style={{ height: '32px', objectFit: 'contain' }}
-                      onError={e => e.target.style.display = 'none'} />
-                  )}
-                  <div>
-                    <div style={{ fontWeight: 'bold', fontSize: '14px', color: '#fff' }}>{p.web_name}</div>
-                    <div style={{ color: '#aaa', fontSize: '11px' }}>{p.team_name} · {p.position} · £{p.price}m</div>
-                  </div>
+      <div style={{ position: 'relative', marginBottom: '16px', maxWidth: '320px' }}>
+        <input
+          placeholder="Search player..."
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          style={{
+            width: '100%', padding: '10px 14px', borderRadius: '8px',
+            border: '1px solid #2a2f3e', background: '#0e1117',
+            color: '#fff', fontSize: '14px', outline: 'none', boxSizing: 'border-box'
+          }}
+        />
+        {search && filtered.length > 0 && (
+          <div style={{
+            position: 'absolute', zIndex: 100, background: '#1a1f2e',
+            border: '1px solid #2a2f3e', borderRadius: '8px', marginTop: '4px',
+            maxHeight: '240px', overflowY: 'auto', width: '100%'
+          }}>
+            {filtered.map(p => (
+              <div key={p.id} onClick={() => selectPlayer(p)}
+                style={{ padding: '10px 14px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px', borderBottom: '1px solid #0e1117' }}
+                onMouseEnter={e => e.currentTarget.style.background = '#0e1117'}
+                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                {p.code && (
+                  <img src={`https://resources.premierleague.com/premierleague/photos/players/110x140/p${p.code}.png`}
+                    style={{ height: '32px', objectFit: 'contain' }}
+                    onError={e => e.target.style.display = 'none'} />
+                )}
+                <div>
+                  <div style={{ fontWeight: 'bold', fontSize: '14px', color: '#fff' }}>{p.web_name}</div>
+                  <div style={{ color: '#aaa', fontSize: '11px' }}>{p.team_name} · {p.position} · £{p.price}m</div>
                 </div>
-              ))}
-            </div>
-          )}
-        </div>
-        <div style={{ color: '#555', fontSize: '12px', paddingTop: '12px' }}>
-          Search and select a player to view their season scoring history
-        </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {!selected && (
-        <div style={{
-          background: '#1a1f2e', borderRadius: '12px', padding: '48px',
-          textAlign: 'center', border: '1px dashed #2a2f3e'
-        }}>
+        <div style={{ background: '#0e1117', borderRadius: '12px', padding: '48px', textAlign: 'center', border: '1px dashed #2a2f3e' }}>
           <div style={{ fontSize: '32px', marginBottom: '12px' }}>📈</div>
           <div style={{ color: '#aaa', fontSize: '14px' }}>Search for a player above to load their GW-by-GW points timeline</div>
         </div>
       )}
 
       {selected && (
-        <div style={{ background: '#1a1f2e', borderRadius: '12px', padding: '20px', border: `1px solid ${POS_COLORS[selected.position] || '#00ff87'}` }}>
-          {/* Player header */}
+        <div style={{ background: '#0e1117', borderRadius: '12px', padding: '20px', border: `1px solid ${POS_COLORS[selected.position] || '#00ff87'}` }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '20px', flexWrap: 'wrap' }}>
             {selected.code && (
               <img src={`https://resources.premierleague.com/premierleague/photos/players/110x140/p${selected.code}.png`}
@@ -389,7 +361,6 @@ function FormTimeline({ players }) {
               <div style={{ fontWeight: 'bold', fontSize: '20px' }}>{selected.web_name}</div>
               <div style={{ color: '#aaa', fontSize: '13px' }}>{selected.team_name} · {selected.position} · £{selected.price}m</div>
             </div>
-            {/* Season summary stats */}
             {avgPts && (
               <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
                 {[
@@ -398,7 +369,7 @@ function FormTimeline({ players }) {
                   ['Best GW', `GW${bestGW?.round} (${bestGW?.total_points}pts)`, '#ffd700'],
                   ['Form', selected.form, '#00b2ff'],
                 ].map(([label, val, color]) => (
-                  <div key={label} style={{ background: '#0e1117', borderRadius: '8px', padding: '8px 14px', textAlign: 'center' }}>
+                  <div key={label} style={{ background: '#1a1f2e', borderRadius: '8px', padding: '8px 14px', textAlign: 'center' }}>
                     <div style={{ color: '#aaa', fontSize: '10px', marginBottom: '2px' }}>{label}</div>
                     <div style={{ color, fontWeight: 'bold', fontSize: '15px' }}>{val}</div>
                   </div>
@@ -407,33 +378,27 @@ function FormTimeline({ players }) {
             )}
           </div>
 
-          {/* Compare toggle */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px', flexWrap: 'wrap' }}>
             <span style={{ color: '#aaa', fontSize: '13px' }}>Compare with:</span>
             <div style={{ position: 'relative', minWidth: '200px' }}>
               <input
                 placeholder="Search player to compare..."
-                onChange={e => {
-                  const val = e.target.value
-                  if (!val) { setCompare(null); setCompareHistory([]) }
-                  // reuse main search for simplicity
-                  setSearch(val)
-                }}
+                value={compareSearch}
+                onChange={e => setCompareSearch(e.target.value)}
                 style={{
                   width: '100%', padding: '7px 12px', borderRadius: '6px',
-                  border: '1px solid #2a2f3e', background: '#0e1117',
+                  border: '1px solid #2a2f3e', background: '#1a1f2e',
                   color: '#fff', fontSize: '13px', outline: 'none'
                 }}
               />
-              {search && filtered.length > 0 && (
+              {compareSearch && filteredCompare.length > 0 && (
                 <div style={{
                   position: 'absolute', zIndex: 100, background: '#1a1f2e',
                   border: '1px solid #2a2f3e', borderRadius: '8px', marginTop: '4px',
                   maxHeight: '200px', overflowY: 'auto', minWidth: '220px'
                 }}>
-                  {filtered.filter(p => p.id !== selected.id).map(p => (
-                    <div key={p.id}
-                      onClick={() => { selectPlayer(p, true); setSearch('') }}
+                  {filteredCompare.map(p => (
+                    <div key={p.id} onClick={() => selectCompare(p)}
                       style={{ padding: '8px 12px', cursor: 'pointer', fontSize: '13px', color: '#fff', borderBottom: '1px solid #0e1117' }}
                       onMouseEnter={e => e.currentTarget.style.background = '#0e1117'}
                       onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
@@ -447,46 +412,22 @@ function FormTimeline({ players }) {
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <div style={{ width: '12px', height: '3px', background: '#ff8800', borderRadius: '2px' }} />
                 <span style={{ color: '#ff8800', fontSize: '13px', fontWeight: 'bold' }}>{compare.web_name}</span>
-                <button onClick={() => { setCompare(null); setCompareHistory([]) }}
+                <button onClick={() => { setCompare(null); setCompareHistory([]); setCompareSearch('') }}
                   style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer', fontSize: '16px', lineHeight: 1 }}>×</button>
               </div>
             )}
           </div>
 
-          {/* Chart */}
           {loading ? (
             <p style={{ color: '#aaa', fontSize: '13px' }}>Loading timeline...</p>
           ) : (
-            <ResponsiveContainer width="100%" height={280}>
-              <AreaChart data={mergedHistory} margin={{ top: 5, right: 10, bottom: 20, left: 0 }}>
-                <defs>
-                  <linearGradient id="mainFill" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#00ff87" stopOpacity={0.25} />
-                    <stop offset="95%" stopColor="#00ff87" stopOpacity={0} />
-                  </linearGradient>
-                  <linearGradient id="compFill" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#ff8800" stopOpacity={0.15} />
-                    <stop offset="95%" stopColor="#ff8800" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#1e2330" />
-                <XAxis dataKey="round" tick={{ fill: '#aaa', fontSize: 11 }} tickLine={false} axisLine={false}
-                  label={{ value: 'Gameweek', position: 'insideBottom', offset: -10, fill: '#555', fontSize: 12 }} />
-                <YAxis tick={{ fill: '#aaa', fontSize: 11 }} tickLine={false} axisLine={false} />
-                <Tooltip content={<TimelineTooltip />} />
-                <Area type="monotone" dataKey="total_points" stroke="#00ff87" strokeWidth={2.5}
-                  fill="url(#mainFill)" dot={{ fill: '#00ff87', r: 3 }} activeDot={{ r: 6 }} name={selected.web_name} />
-                {compare && compareHistory.length > 0 && (
-                  <Area type="monotone" dataKey="compare_points" stroke="#ff8800" strokeWidth={2}
-                    fill="url(#compFill)" dot={{ fill: '#ff8800', r: 3 }} activeDot={{ r: 5 }} name={compare.web_name} strokeDasharray="5 3" />
-                )}
-              </AreaChart>
-            </ResponsiveContainer>
+            <div style={{ height: '280px', marginBottom: '24px' }}>
+              <Line data={lineData} options={lineOptions} />
+            </div>
           )}
 
-          {/* GW breakdown table */}
           {history.length > 0 && (
-            <div style={{ marginTop: '20px' }}>
+            <div>
               <div style={{ color: '#aaa', fontSize: '12px', marginBottom: '8px' }}>Gameweek Breakdown</div>
               <div style={{ overflowX: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
@@ -540,8 +481,8 @@ export default function Analytics() {
   }, [])
 
   const tabs = [
-    { key: 'xg',      label: '⚽ xG vs Goals',      desc: 'Who is over/underperforming their expected goals?' },
-    { key: 'timeline', label: '📈 Form Timeline',    desc: 'GW-by-GW scoring history for any player' },
+    { key: 'xg',       label: '⚽ xG vs Goals',  desc: 'Who is over/underperforming their expected goals?' },
+    { key: 'timeline', label: '📈 Form Timeline', desc: 'GW-by-GW scoring history for any player' },
   ]
 
   return (
@@ -551,7 +492,6 @@ export default function Analytics() {
         Deeper stats and visualisations — go beyond the surface numbers.
       </p>
 
-      {/* Tab bar */}
       <div style={{ display: 'flex', gap: '10px', marginBottom: '28px', flexWrap: 'wrap' }}>
         {tabs.map(t => (
           <button key={t.key} onClick={() => setTab(t.key)} style={{
