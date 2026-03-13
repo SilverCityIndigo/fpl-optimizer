@@ -14,20 +14,26 @@ export default function App() {
   const [page, setPage] = useState('players')
   const [syncing, setSyncing] = useState(false)
   const [syncMsg, setSyncMsg] = useState('')
+  const [analyticsPlayer, setAnalyticsPlayer] = useState(null)
 
   async function handleSync() {
     setSyncing(true)
     setSyncMsg('')
     try {
       const res = await fetch(`${API}/admin/sync`, { method: 'POST' })
-      const data = await res.json()
+      await res.json()
       setSyncMsg('✅ Synced!')
-    } catch (e) {
+    } catch {
       setSyncMsg('❌ Failed')
     } finally {
       setSyncing(false)
       setTimeout(() => setSyncMsg(''), 4000)
     }
+  }
+
+  function goToAnalytics(player) {
+    setAnalyticsPlayer(player)
+    setPage('analytics')
   }
 
   return (
@@ -47,7 +53,6 @@ export default function App() {
         <button onClick={() => setPage('analytics')}      style={navBtn(page === 'analytics')}>    📊 Analytics</button>
 
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '12px' }}>
-          {/* Sync button */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             {syncMsg && <span style={{ fontSize: '12px', color: syncMsg.startsWith('✅') ? '#00ff87' : '#ff4444' }}>{syncMsg}</span>}
             <button
@@ -55,14 +60,10 @@ export default function App() {
               disabled={syncing}
               title="Sync latest FPL data"
               style={{
-                background: 'transparent',
-                border: '1px solid rgba(255,255,255,0.2)',
-                borderRadius: '6px',
-                color: syncing ? '#aaa' : 'rgba(255,255,255,0.6)',
-                cursor: syncing ? 'not-allowed' : 'pointer',
-                padding: '4px 10px',
-                fontSize: '13px',
-                transition: 'color 0.15s, border-color 0.15s'
+                background: 'transparent', border: '1px solid rgba(255,255,255,0.2)',
+                borderRadius: '6px', color: syncing ? '#aaa' : 'rgba(255,255,255,0.6)',
+                cursor: syncing ? 'not-allowed' : 'pointer', padding: '4px 10px',
+                fontSize: '13px', transition: 'color 0.15s, border-color 0.15s'
               }}
               onMouseEnter={e => { if (!syncing) { e.currentTarget.style.color = '#fff'; e.currentTarget.style.borderColor = '#fff' }}}
               onMouseLeave={e => { e.currentTarget.style.color = syncing ? '#aaa' : 'rgba(255,255,255,0.6)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.2)' }}
@@ -71,7 +72,6 @@ export default function App() {
             </button>
           </div>
 
-          {/* GitHub link */}
           <a href="https://github.com/SilverCityIndigo" target="_blank" rel="noreferrer"
             style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'rgba(255,255,255,0.6)', textDecoration: 'none', fontSize: '13px', transition: 'color 0.15s' }}
             onMouseEnter={e => e.currentTarget.style.color = '#fff'}
@@ -85,13 +85,13 @@ export default function App() {
       </nav>
 
       <div style={{ padding: '24px' }}>
-        {page === 'players'       && <Players />}
+        {page === 'players'       && <Players onAnalytics={goToAnalytics} />}
         {page === 'transfers'     && <Transfers />}
         {page === 'captain'       && <Captain />}
         {page === 'differentials' && <Differentials />}
         {page === 'pricechanges'  && <PriceChanges />}
         {page === 'chips'         && <ChipAdvisor />}
-        {page === 'analytics'     && <Analytics />}
+        {page === 'analytics'     && <Analytics initialPlayer={analyticsPlayer} />}
       </div>
     </div>
   )
@@ -109,4 +109,4 @@ function navBtn(active) {
     fontSize: '14px',
     whiteSpace: 'nowrap'
   }
-}
+} 

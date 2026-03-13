@@ -18,17 +18,28 @@ function ptColor(pts) {
   return '#fff'
 }
 
+const TH = ({ children }) => (
+  <th style={{ padding: '8px 10px', textAlign: 'left', color: '#fff', fontWeight: 'bold', fontSize: '12px', borderBottom: '1px solid #2a2f3e' }}>
+    {children}
+  </th>
+)
+
 // ─── xG Scatter ─────────────────────────────────────────────────────────────
-function XGScatter({ players }) {
+function XGScatter({ players, onSelectPlayer, selectedPlayer }) {
   const [position, setPosition] = useState('All')
-  const [selected, setSelected] = useState(null)
   const [history, setHistory] = useState([])
   const [histLoading, setHistLoading] = useState(false)
   const chartRef = useRef(null)
 
+  // Use xg_per90 vs goals_per90 for a fair comparison
   const filtered = players
     .filter(p => position === 'All' || p.position === position)
-    .filter(p => p.xg != null && p.goals_scored != null && p.minutes > 180)
+    .filter(p => p.xg_per90 != null && p.goals_scored != null && p.minutes > 180)
+    .map(p => ({
+      ...p,
+      xg_p90: parseFloat(p.xg_per90 || 0),
+      goals_p90: parseFloat(((p.goals_scored / p.minutes) * 90).toFixed(3)),
+    }))
 
   const positionsPresent = [...new Set(filtered.map(p => p.position))]
   const datasets = positionsPresent.map(pos => ({
@@ -36,8 +47,8 @@ function XGScatter({ players }) {
     data: filtered
       .filter(p => p.position === pos)
       .map(p => ({
-        x: parseFloat(p.xg || 0),
-        y: p.goals_scored,
+        x: p.xg_p90,
+        y: p.goals_p90,
         player: p,
       })),
     backgroundColor: POS_COLORS[pos] + 'cc',
@@ -45,12 +56,12 @@ function XGScatter({ players }) {
     pointHoverRadius: 9,
   }))
 
-  const maxVal = Math.max(...filtered.map(p => Math.max(parseFloat(p.xg || 0), p.goals_scored)), 1) + 1
+  const maxVal = Math.max(...filtered.map(p => Math.max(p.xg_p90, p.goals_p90)), 0.5) + 0.2
   const refLine = {
     label: 'xG = Goals',
     data: [{ x: 0, y: 0 }, { x: maxVal, y: maxVal }],
     type: 'line',
-    borderColor: '#2a2f3e',
+    borderColor: '#3a4050',
     borderDash: [6, 4],
     borderWidth: 2,
     pointRadius: 0,
@@ -77,12 +88,12 @@ function XGScatter({ players }) {
           label: (ctx) => {
             const p = ctx.raw?.player
             if (!p) return ''
-            const diff = (p.goals_scored - parseFloat(p.xg || 0)).toFixed(2)
+            const diff = (p.goals_p90 - p.xg_p90).toFixed(3)
             const sign = diff >= 0 ? '+' : ''
             return [
               `${p.web_name} (${p.team_name})`,
-              `Goals: ${p.goals_scored}  xG: ${parseFloat(p.xg).toFixed(2)}`,
-              `Diff: ${sign}${diff} ${diff >= 0 ? '🔥 Overperforming' : '⏳ Due a return'}`,
+              `Goals/90: ${p.goals_p90.toFixed(3)}   xG/90: ${p.xg_p90.toFixed(3)}`,
+              `Diff: ${sign}${diff} ${parseFloat(diff) >= 0 ? '🔥 Overperforming' : '⏳ Due a return'}`,
             ]
           }
         },
@@ -92,18 +103,18 @@ function XGScatter({ players }) {
     },
     scales: {
       x: {
-        title: { display: true, text: 'Expected Goals (xG)', color: '#aaa', font: { size: 13 } },
+        title: { display: true, text: 'Expected Goals per 90 (xG/90)', color: '#aaa', font: { size: 13 } },
         ticks: { color: '#aaa' }, grid: { color: '#1e2330' }, min: 0, max: maxVal,
       },
       y: {
-        title: { display: true, text: 'Actual Goals', color: '#aaa', font: { size: 13 } },
+        title: { display: true, text: 'Actual Goals per 90', color: '#aaa', font: { size: 13 } },
         ticks: { color: '#aaa' }, grid: { color: '#1e2330' }, min: 0, max: maxVal,
       }
     }
   }
 
   async function handleSelect(player) {
-    setSelected(player)
+    onSelectPlayer(player)
     setHistLoading(true)
     try {
       const res = await getPlayerHistory(player.id)
@@ -111,6 +122,8 @@ function XGScatter({ players }) {
     } catch { setHistory([]) }
     setHistLoading(false)
   }
+
+  const selected = selectedPlayer
 
   return (
     <div>
@@ -154,9 +167,9 @@ function XGScatter({ players }) {
             <div style={{ marginLeft: 'auto', display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
               {[
                 ['Goals', selected.goals_scored, '#ffd700'],
-                ['xG', parseFloat(selected.xg || 0).toFixed(2), '#00b2ff'],
-                ['Diff', ((selected.goals_scored || 0) - parseFloat(selected.xg || 0)).toFixed(2),
-                  (selected.goals_scored || 0) >= parseFloat(selected.xg || 0) ? '#00ff87' : '#ff4444'],
+                ['xG/90', parseFloat(selected.xg_per90 || 0).toFixed(3), '#00b2ff'],
+                ['xA/90', parseFloat(selected.xa_per90 || 0).toFixed(3), '#00b2ff'],
+                ['xGI/90', parseFloat(selected.xgi_per90 || 0).toFixed(3), '#00ff87'],
               ].map(([label, val, color]) => (
                 <div key={label} style={{ background: '#1a1f2e', borderRadius: '8px', padding: '8px 14px', textAlign: 'center' }}>
                   <div style={{ color: '#aaa', fontSize: '10px', marginBottom: '2px' }}>{label}</div>
@@ -208,14 +221,15 @@ function XGScatter({ players }) {
 }
 
 // ─── Form Timeline ───────────────────────────────────────────────────────────
-function FormTimeline({ players }) {
+function FormTimeline({ players, selectedPlayer, onSelectPlayer }) {
   const [search, setSearch] = useState('')
-  const [selected, setSelected] = useState(null)
   const [history, setHistory] = useState([])
   const [loading, setLoading] = useState(false)
   const [compare, setCompare] = useState(null)
   const [compareHistory, setCompareHistory] = useState([])
   const [compareSearch, setCompareSearch] = useState('')
+
+  const selected = selectedPlayer
 
   const filtered = players
     .filter(p => p.web_name.toLowerCase().includes(search.toLowerCase()))
@@ -226,15 +240,19 @@ function FormTimeline({ players }) {
     .filter(p => p.id !== selected?.id)
     .slice(0, 20)
 
-  async function selectPlayer(player) {
-    setSelected(player)
-    setSearch('')
+  // Auto-load history when selectedPlayer changes (e.g. from Players page redirect)
+  useEffect(() => {
+    if (!selected) return
     setLoading(true)
-    try {
-      const res = await getPlayerHistory(player.id)
-      setHistory(res.data)
-    } catch { setHistory([]) }
-    setLoading(false)
+    getPlayerHistory(selected.id)
+      .then(res => setHistory(res.data))
+      .catch(() => setHistory([]))
+      .finally(() => setLoading(false))
+  }, [selected?.id])
+
+  async function selectPlayer(player) {
+    onSelectPlayer(player)
+    setSearch('')
   }
 
   async function selectCompare(player) {
@@ -374,6 +392,9 @@ function FormTimeline({ players }) {
                   ['Avg / GW', avgPts, '#00ff87'],
                   ['Best GW', `GW${bestGW?.gameweek} (${bestGW?.total_points}pts)`, '#ffd700'],
                   ['Form', selected.form, '#00b2ff'],
+                  ['xG/90', parseFloat(selected.xg_per90 || 0).toFixed(3), '#00b2ff'],
+                  ['xA/90', parseFloat(selected.xa_per90 || 0).toFixed(3), '#00b2ff'],
+                  ['xGI/90', parseFloat(selected.xgi_per90 || 0).toFixed(3), '#00ff87'],
                 ].map(([label, val, color]) => (
                   <div key={label} style={{ background: '#1a1f2e', borderRadius: '8px', padding: '8px 14px', textAlign: 'center' }}>
                     <div style={{ color: '#aaa', fontSize: '10px', marginBottom: '2px' }}>{label}</div>
@@ -434,14 +455,20 @@ function FormTimeline({ players }) {
 
           {history.length > 0 && (
             <div>
-              <div style={{ color: '#aaa', fontSize: '12px', marginBottom: '8px' }}>Gameweek Breakdown</div>
+              <div style={{ color: '#fff', fontSize: '13px', fontWeight: 'bold', marginBottom: '10px' }}>Gameweek Breakdown</div>
               <div style={{ overflowX: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
                   <thead>
-                    <tr style={{ borderBottom: '1px solid #2a2f3e' }}>
-                      {['GW', 'Pts', 'Mins', 'Goals', 'Assists', 'CS', 'Bonus', 'BPS', 'ICT'].map(h => (
-                        <th key={h} style={{ padding: '6px 10px', textAlign: 'left', color: '#555', fontWeight: 'normal' }}>{h}</th>
-                      ))}
+                    <tr>
+                      <TH>GW</TH>
+                      <TH>Pts</TH>
+                      <TH>Mins</TH>
+                      <TH>Goals</TH>
+                      <TH>Assists</TH>
+                      <TH>CS</TH>
+                      <TH>Bonus</TH>
+                      <TH>BPS</TH>
+                      <TH>ICT</TH>
                     </tr>
                   </thead>
                   <tbody>
@@ -449,15 +476,15 @@ function FormTimeline({ players }) {
                       <tr key={h.gameweek} style={{ borderBottom: '1px solid #1a1f2e' }}
                         onMouseEnter={e => e.currentTarget.style.background = '#1a1f2e'}
                         onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                        <td style={{ padding: '6px 10px', color: '#aaa' }}>GW{h.gameweek}</td>
-                        <td style={{ padding: '6px 10px', color: ptColor(h.total_points), fontWeight: 'bold' }}>{h.total_points}</td>
-                        <td style={{ padding: '6px 10px', color: h.minutes === 0 ? '#ff4444' : '#fff' }}>{h.minutes}'</td>
-                        <td style={{ padding: '6px 10px', color: h.goals_scored > 0 ? '#ffd700' : '#555' }}>{h.goals_scored || '—'}</td>
-                        <td style={{ padding: '6px 10px', color: h.assists > 0 ? '#00b2ff' : '#555' }}>{h.assists || '—'}</td>
-                        <td style={{ padding: '6px 10px', color: h.clean_sheets > 0 ? '#00ff87' : '#555' }}>{h.clean_sheets > 0 ? '✓' : '—'}</td>
-                        <td style={{ padding: '6px 10px', color: h.bonus > 0 ? '#00ff87' : '#555' }}>{h.bonus || '—'}</td>
-                        <td style={{ padding: '6px 10px', color: '#aaa' }}>{h.bps ?? '—'}</td>
-                        <td style={{ padding: '6px 10px', color: '#aaa' }}>{h.ict_index != null ? parseFloat(h.ict_index).toFixed(1) : '—'}</td>
+                        <td style={{ padding: '7px 10px', color: '#aaa' }}>GW{h.gameweek}</td>
+                        <td style={{ padding: '7px 10px', color: ptColor(h.total_points), fontWeight: 'bold' }}>{h.total_points}</td>
+                        <td style={{ padding: '7px 10px', color: h.minutes === 0 ? '#ff4444' : '#fff' }}>{h.minutes}'</td>
+                        <td style={{ padding: '7px 10px', color: h.goals_scored > 0 ? '#ffd700' : '#555' }}>{h.goals_scored || '—'}</td>
+                        <td style={{ padding: '7px 10px', color: h.assists > 0 ? '#00b2ff' : '#555' }}>{h.assists || '—'}</td>
+                        <td style={{ padding: '7px 10px', color: h.clean_sheets > 0 ? '#00ff87' : '#555' }}>{h.clean_sheets > 0 ? '✓' : '—'}</td>
+                        <td style={{ padding: '7px 10px', color: h.bonus > 0 ? '#00ff87' : '#555' }}>{h.bonus || '—'}</td>
+                        <td style={{ padding: '7px 10px', color: '#aaa' }}>{h.bps ?? '—'}</td>
+                        <td style={{ padding: '7px 10px', color: '#aaa' }}>{h.ict_index != null ? parseFloat(h.ict_index).toFixed(1) : '—'}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -475,10 +502,11 @@ function FormTimeline({ players }) {
 }
 
 // ─── Main Analytics Page ─────────────────────────────────────────────────────
-export default function Analytics() {
+export default function Analytics({ initialPlayer = null }) {
   const [players, setPlayers] = useState([])
   const [loading, setLoading] = useState(true)
   const [tab, setTab] = useState('xg')
+  const [selectedPlayer, setSelectedPlayer] = useState(initialPlayer)
 
   useEffect(() => {
     getPlayers()
@@ -486,8 +514,16 @@ export default function Analytics() {
       .finally(() => setLoading(false))
   }, [])
 
+  // If initialPlayer is passed in (from Players page), auto-switch to timeline
+  useEffect(() => {
+    if (initialPlayer) {
+      setSelectedPlayer(initialPlayer)
+      setTab('timeline')
+    }
+  }, [initialPlayer])
+
   const tabs = [
-    { key: 'xg',       label: '⚽ xG vs Goals',  desc: 'Who is over/underperforming their expected goals?' },
+    { key: 'xg',       label: '⚽ xG vs Goals',  desc: 'Who is over/underperforming their expected goals per 90?' },
     { key: 'timeline', label: '📈 Form Timeline', desc: 'GW-by-GW scoring history for any player' },
   ]
 
@@ -528,8 +564,20 @@ export default function Analytics() {
               {tabs.find(t => t.key === tab)?.desc}
             </p>
           </div>
-          {tab === 'xg'       && <XGScatter players={players} />}
-          {tab === 'timeline' && <FormTimeline players={players} />}
+          {tab === 'xg' && (
+            <XGScatter
+              players={players}
+              selectedPlayer={selectedPlayer}
+              onSelectPlayer={setSelectedPlayer}
+            />
+          )}
+          {tab === 'timeline' && (
+            <FormTimeline
+              players={players}
+              selectedPlayer={selectedPlayer}
+              onSelectPlayer={setSelectedPlayer}
+            />
+          )}
         </div>
       )}
     </div>
