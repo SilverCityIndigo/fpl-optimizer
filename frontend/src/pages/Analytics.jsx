@@ -12,6 +12,12 @@ ChartJS.register(LinearScale, PointElement, LineElement, ChartTooltip, Legend, C
 const POSITIONS = ['All', 'GKP', 'DEF', 'MID', 'FWD']
 const POS_COLORS = { GKP: '#f5a623', DEF: '#00b2ff', MID: '#00ff87', FWD: '#ff4444' }
 
+function ptColor(pts) {
+  if (pts >= 7) return '#00ff87'
+  if (pts >= 4) return '#ffd700'
+  return '#fff'
+}
+
 // ─── xG Scatter ─────────────────────────────────────────────────────────────
 function XGScatter({ players }) {
   const [position, setPosition] = useState('All')
@@ -168,7 +174,7 @@ function XGScatter({ players }) {
             <div style={{ height: '200px' }}>
               <Line
                 data={{
-                  labels: history.map(h => `GW${h.round}`),
+                  labels: history.map(h => `GW${h.gameweek}`),
                   datasets: [{
                     label: selected.web_name,
                     data: history.map(h => h.total_points),
@@ -248,7 +254,7 @@ function FormTimeline({ players }) {
     : null
 
   const lineData = {
-    labels: history.map(h => `GW${h.round}`),
+    labels: history.map(h => `GW${h.gameweek}`),
     datasets: [
       {
         label: selected?.web_name || 'Player',
@@ -261,7 +267,7 @@ function FormTimeline({ players }) {
       ...(compare && compareHistory.length > 0 ? [{
         label: compare.web_name,
         data: history.map(h => {
-          const match = compareHistory.find(c => c.round === h.round)
+          const match = compareHistory.find(c => c.gameweek === h.gameweek)
           return match ? match.total_points : null
         }),
         borderColor: '#ff8800',
@@ -366,7 +372,7 @@ function FormTimeline({ players }) {
                 {[
                   ['Season Pts', selected.total_points, '#fff'],
                   ['Avg / GW', avgPts, '#00ff87'],
-                  ['Best GW', `GW${bestGW?.round} (${bestGW?.total_points}pts)`, '#ffd700'],
+                  ['Best GW', `GW${bestGW?.gameweek} (${bestGW?.total_points}pts)`, '#ffd700'],
                   ['Form', selected.form, '#00b2ff'],
                 ].map(([label, val, color]) => (
                   <div key={label} style={{ background: '#1a1f2e', borderRadius: '8px', padding: '8px 14px', textAlign: 'center' }}>
@@ -433,25 +439,25 @@ function FormTimeline({ players }) {
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
                   <thead>
                     <tr style={{ borderBottom: '1px solid #2a2f3e' }}>
-                      {['GW', 'Pts', 'Mins', 'Goals', 'Assists', 'CS', 'Bonus', 'xG', 'xA'].map(h => (
+                      {['GW', 'Pts', 'Mins', 'Goals', 'Assists', 'CS', 'Bonus', 'BPS', 'ICT'].map(h => (
                         <th key={h} style={{ padding: '6px 10px', textAlign: 'left', color: '#555', fontWeight: 'normal' }}>{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
                     {[...history].reverse().slice(0, 10).map(h => (
-                      <tr key={h.round} style={{ borderBottom: '1px solid #1a1f2e' }}
+                      <tr key={h.gameweek} style={{ borderBottom: '1px solid #1a1f2e' }}
                         onMouseEnter={e => e.currentTarget.style.background = '#1a1f2e'}
                         onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                        <td style={{ padding: '6px 10px', color: '#aaa' }}>GW{h.round}</td>
-                        <td style={{ padding: '6px 10px', color: h.total_points >= 9 ? '#00ff87' : h.total_points >= 6 ? '#ffd700' : '#fff', fontWeight: 'bold' }}>{h.total_points}</td>
+                        <td style={{ padding: '6px 10px', color: '#aaa' }}>GW{h.gameweek}</td>
+                        <td style={{ padding: '6px 10px', color: ptColor(h.total_points), fontWeight: 'bold' }}>{h.total_points}</td>
                         <td style={{ padding: '6px 10px', color: h.minutes === 0 ? '#ff4444' : '#fff' }}>{h.minutes}'</td>
                         <td style={{ padding: '6px 10px', color: h.goals_scored > 0 ? '#ffd700' : '#555' }}>{h.goals_scored || '—'}</td>
                         <td style={{ padding: '6px 10px', color: h.assists > 0 ? '#00b2ff' : '#555' }}>{h.assists || '—'}</td>
                         <td style={{ padding: '6px 10px', color: h.clean_sheets > 0 ? '#00ff87' : '#555' }}>{h.clean_sheets > 0 ? '✓' : '—'}</td>
-                        <td style={{ padding: '6px 10px', color: h.bonus > 0 ? '#ff8800' : '#555' }}>{h.bonus || '—'}</td>
-                        <td style={{ padding: '6px 10px', color: '#aaa' }}>{h.expected_goals != null ? parseFloat(h.expected_goals).toFixed(2) : '—'}</td>
-                        <td style={{ padding: '6px 10px', color: '#aaa' }}>{h.expected_assists != null ? parseFloat(h.expected_assists).toFixed(2) : '—'}</td>
+                        <td style={{ padding: '6px 10px', color: h.bonus > 0 ? '#00ff87' : '#555' }}>{h.bonus || '—'}</td>
+                        <td style={{ padding: '6px 10px', color: '#aaa' }}>{h.bps ?? '—'}</td>
+                        <td style={{ padding: '6px 10px', color: '#aaa' }}>{h.ict_index != null ? parseFloat(h.ict_index).toFixed(1) : '—'}</td>
                       </tr>
                     ))}
                   </tbody>
