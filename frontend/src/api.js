@@ -14,6 +14,8 @@ export const getDifferentials = () => api.get('/api/players/differentials')
 export const getCurrentGameweek = () => api.get('/api/gameweek/current')
 
 export const getTeamSquad = (teamId) => api.get(`/api/players/team/${teamId}`)
+export const getPlayerHistory = (playerId) => api.get(`/api/players/${playerId}/history`)
+
 export const getTransferSuggestions = (squadIds, budgetItb, freeTransfers) =>
   api.post('/api/optimizer/transfers', {
     current_squad_ids: squadIds,
@@ -39,4 +41,3 @@ export const getChipAdvice = (squadIds) =>
   api.post('/api/optimizer/chips', { current_squad_ids: squadIds })
 
 export default api
-

@@ -5,6 +5,7 @@ import Captain from './pages/Captain'
 import Differentials from './pages/Differentials'
 import PriceChanges from './pages/PriceChanges'
 import ChipAdvisor from './pages/ChipAdvisor'
+import Analytics from './pages/Analytics'
 import './index.css'
 
 const API = import.meta.env.VITE_API_URL || 'https://fpl-optimizer-production.up.railway.app'
@@ -43,6 +44,7 @@ export default function App() {
         <button onClick={() => setPage('chips')}          style={navBtn(page === 'chips')}>        🃏 Chips</button>
         <button onClick={() => setPage('differentials')}  style={navBtn(page === 'differentials')}>🔍 Scout</button>
         <button onClick={() => setPage('pricechanges')}   style={navBtn(page === 'pricechanges')}> 💰 Prices</button>
+        <button onClick={() => setPage('analytics')}      style={navBtn(page === 'analytics')}>    📊 Analytics</button>
 
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '12px' }}>
           {/* Sync button */}
@@ -89,6 +91,7 @@ export default function App() {
         {page === 'differentials' && <Differentials />}
         {page === 'pricechanges'  && <PriceChanges />}
         {page === 'chips'         && <ChipAdvisor />}
+        {page === 'analytics'     && <Analytics />}
       </div>
     </div>
   )
