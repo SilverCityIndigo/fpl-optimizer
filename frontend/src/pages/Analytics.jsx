@@ -185,7 +185,12 @@ function XGPanel({ players, selectedPlayer, onSelectPlayer }) {
       ...(selectedDot ? [{
         label: selected.web_name,
         data: [{ x: selectedDot.xg_p90, y: selectedDot.goals_p90, player: selectedDot }],
-        backgroundColor: POS_COLORS[selected.position] || '#00ff87',
+        backgroundColor: (() => {
+          const diff = selectedDot.goals_p90 - selectedDot.xg_p90
+          if (diff >= 0.08) return '#00ff87'
+          if (diff <= -0.08) return '#ff8800'
+          return '#ffffff'
+        })(),
         pointRadius: 10,
         pointHoverRadius: 13,
         pointStyle: 'circle',
@@ -193,7 +198,12 @@ function XGPanel({ players, selectedPlayer, onSelectPlayer }) {
       ...(compareDot ? [{
         label: compare.web_name,
         data: [{ x: compareDot.xg_p90, y: compareDot.goals_p90, player: compareDot }],
-        backgroundColor: '#ff8800',
+        backgroundColor: (() => {
+          const diff = compareDot.goals_p90 - compareDot.xg_p90
+          if (diff >= 0.08) return '#00ff87'
+          if (diff <= -0.08) return '#ff8800'
+          return '#ffffff'
+        })(),
         pointRadius: 10,
         pointHoverRadius: 13,
       }] : []),
@@ -258,6 +268,9 @@ function XGPanel({ players, selectedPlayer, onSelectPlayer }) {
   const actualGoals = history.reduce((s, h) => s + (h.goals_scored || 0), 0)
   const xgDiff = (actualGoals - seasonXG).toFixed(2)
 
+  // Per-90 diff for insight tag (matches what graph shows)
+  const per90Diff = selectedDot ? (selectedDot.goals_p90 - selectedDot.xg_p90) : 0
+
   return (
     <div>
       {/* Position filter + search */}
@@ -321,13 +334,13 @@ function XGPanel({ players, selectedPlayer, onSelectPlayer }) {
 
           {history.length > 0 && (
             <div style={{ marginBottom: '16px' }}>
-              {parseFloat(xgDiff) >= 2 ? (
+              {per90Diff >= 0.08 ? (
                 <span style={{ background: 'rgba(0,255,135,0.1)', border: '1px solid #00ff87', borderRadius: '6px', padding: '6px 12px', fontSize: '13px', color: '#00ff87' }}>
-                  🔥 Overperforming xG by {xgDiff} goals — form may regress
+                  🔥 Overperforming xG by {per90Diff.toFixed(3)} goals/90 — form may regress
                 </span>
-              ) : parseFloat(xgDiff) <= -2 ? (
+              ) : per90Diff <= -0.08 ? (
                 <span style={{ background: 'rgba(255,136,0,0.1)', border: '1px solid #ff8800', borderRadius: '6px', padding: '6px 12px', fontSize: '13px', color: '#ff8800' }}>
-                  ⏳ Underperforming xG by {Math.abs(xgDiff)} goals — return incoming
+                  ⏳ Underperforming xG by {Math.abs(per90Diff).toFixed(3)} goals/90 — return incoming
                 </span>
               ) : (
                 <span style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid #2a2f3e', borderRadius: '6px', padding: '6px 12px', fontSize: '13px', color: '#aaa' }}>
