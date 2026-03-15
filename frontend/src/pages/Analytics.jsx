@@ -84,16 +84,16 @@ function GWTable({ history }) {
           <thead>
             <tr>
               <TH>GW</TH>
-              <TH>Pts</TH>
               <TH>Mins</TH>
+              <TH>Pts</TH>
               <TH>Goals</TH>
               <TH>Assists</TH>
+              <TH>CS</TH>
               <TH>xG</TH>
               <TH>xA</TH>
-              <TH>CS</TH>
+              <TH>ICT</TH>
               <TH>Bonus</TH>
               <TH>BPS</TH>
-              <TH>ICT</TH>
             </tr>
           </thead>
           <tbody>
@@ -105,16 +105,16 @@ function GWTable({ history }) {
                   onMouseEnter={e => e.currentTarget.style.background = '#1a1f2e'}
                   onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
                   <td style={{ padding: '7px 10px', color: '#aaa' }}>GW{h.gameweek}</td>
-                  <td style={{ padding: '7px 10px', color: ptColor(h.total_points), fontWeight: 'bold' }}>{h.total_points}</td>
                   <td style={{ padding: '7px 10px', color: h.minutes === 0 ? '#ff4444' : '#fff' }}>{h.minutes}'</td>
+                  <td style={{ padding: '7px 10px', color: ptColor(h.total_points), fontWeight: 'bold' }}>{h.total_points}</td>
                   <td style={{ padding: '7px 10px', color: h.goals_scored > 0 ? '#ffd700' : '#555' }}>{h.goals_scored || '—'}</td>
                   <td style={{ padding: '7px 10px', color: h.assists > 0 ? '#7fff00' : '#555' }}>{h.assists || '—'}</td>
+                  <td style={{ padding: '7px 10px', color: h.clean_sheets > 0 ? '#00ff87' : '#555' }}>{h.clean_sheets > 0 ? '✓' : '—'}</td>
                   <td style={{ padding: '7px 10px', color: xg > 0.3 ? '#00b2ff' : '#aaa' }}>{xg > 0 ? xg.toFixed(2) : '—'}</td>
                   <td style={{ padding: '7px 10px', color: xa > 0.2 ? '#00b2ff' : '#aaa' }}>{xa > 0 ? xa.toFixed(2) : '—'}</td>
-                  <td style={{ padding: '7px 10px', color: h.clean_sheets > 0 ? '#00ff87' : '#555' }}>{h.clean_sheets > 0 ? '✓' : '—'}</td>
+                  <td style={{ padding: '7px 10px', color: '#aaa' }}>{h.ict_index != null ? parseFloat(h.ict_index).toFixed(1) : '—'}</td>
                   <td style={{ padding: '7px 10px', color: h.bonus > 0 ? '#00ff87' : '#555' }}>{h.bonus || '—'}</td>
                   <td style={{ padding: '7px 10px', color: '#aaa' }}>{h.bps ?? '—'}</td>
-                  <td style={{ padding: '7px 10px', color: '#aaa' }}>{h.ict_index != null ? parseFloat(h.ict_index).toFixed(1) : '—'}</td>
                 </tr>
               )
             })}
