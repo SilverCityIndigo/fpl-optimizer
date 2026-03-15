@@ -26,7 +26,7 @@ export default function Differentials() {
     <div>
       <h2 style={{ marginBottom: '8px', color: '#00ff87' }}>🔍 Differential Scout</h2>
       <p style={{ color: '#aaa', marginBottom: '24px', fontSize: '14px' }}>
-        Low-ownership players currently delivering points — find the edge before everyone else does.
+        Differentials: underrated, lower-ownership players. Find the edge before anyone else does. 
       </p>
 
       {/* Position filter */}
