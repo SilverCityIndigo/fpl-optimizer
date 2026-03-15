@@ -20,14 +20,22 @@ export default function App() {
     setSyncing(true)
     setSyncMsg('')
     try {
-      const res = await fetch(`${API}/admin/sync`, { method: 'POST' })
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), 15000)
+      const res = await fetch(`${API}/admin/sync`, { method: 'POST', signal: controller.signal })
+      clearTimeout(timeout)
+      if (!res.ok) throw new Error('Server error')
       await res.json()
       setSyncMsg('✅ Synced!')
-    } catch {
-      setSyncMsg('❌ Failed')
+    } catch (e) {
+      if (e.name === 'AbortError') {
+        setSyncMsg('⚠️ Sync timed out')
+      } else {
+        setSyncMsg('❌ Failed')
+      }
     } finally {
       setSyncing(false)
-      setTimeout(() => setSyncMsg(''), 4000)
+      setTimeout(() => setSyncMsg(''), 5000)
     }
   }
 
@@ -109,4 +117,4 @@ function navBtn(active) {
     fontSize: '14px',
     whiteSpace: 'nowrap'
   }
-} 
+}
