@@ -678,7 +678,7 @@ export default function Analytics({ initialPlayer = null }) {
     <div>
       <h2 style={{ marginBottom: '6px', color: '#00ff87' }}>📊 Analytics</h2>
       <p style={{ color: '#aaa', marginBottom: '24px', fontSize: '14px' }}>
-        Deeper stats and visualisations — go beyond the surface numbers.
+        Other stats and cool charts! 
       </p>
 
       <div style={{ display: 'flex', gap: '10px', marginBottom: '28px', flexWrap: 'wrap' }}>
