@@ -26,42 +26,39 @@ HEADERS = {
 
 
 def get_bootstrap():
-    """Fetch the main FPL bootstrap data (players, teams, GW info)."""
     r = requests.get(f"{BASE_URL}/bootstrap-static/", headers=HEADERS, timeout=15)
     r.raise_for_status()
     return r.json()
 
 
 def get_fixtures():
-    """Fetch all fixtures with FDR ratings."""
     r = requests.get(f"{BASE_URL}/fixtures/", headers=HEADERS, timeout=15)
     r.raise_for_status()
     return r.json()
 
 
 def get_player_history(player_id: int):
-    """Fetch gameweek-by-gameweek history for a single player."""
     r = requests.get(f"{BASE_URL}/element-summary/{player_id}/", headers=HEADERS, timeout=15)
     r.raise_for_status()
     return r.json()
 
 
 def init_db(db_path: str = "fpl.db"):
-    """Create the SQLite database schema."""
     conn = sqlite3.connect(db_path)
     c = conn.cursor()
 
     c.executescript("""
         CREATE TABLE IF NOT EXISTS teams (
-        id INTEGER PRIMARY KEY,
-        name TEXT,
-        short_name TEXT,
-        strength INTEGER,
-        strength_attack_home INTEGER,
-        strength_attack_away INTEGER,
-        strength_defence_home INTEGER,
-        strength_defence_away INTEGER
-    );
+            id INTEGER PRIMARY KEY,
+            name TEXT,
+            short_name TEXT,
+            strength INTEGER,
+            strength_attack_home INTEGER,
+            strength_attack_away INTEGER,
+            strength_defence_home INTEGER,
+            strength_defence_away INTEGER
+        );
+
         CREATE TABLE IF NOT EXISTS players (
             id INTEGER PRIMARY KEY,
             code INTEGER,
@@ -89,7 +86,7 @@ def init_db(db_path: str = "fpl.db"):
             xa_per90 REAL DEFAULT 0.0,
             xgi_per90 REAL DEFAULT 0.0,
             updated_at TEXT
-            );
+        );
 
         CREATE TABLE IF NOT EXISTS gameweeks (
             id INTEGER PRIMARY KEY,
@@ -118,6 +115,9 @@ def init_db(db_path: str = "fpl.db"):
             selected INTEGER,
             transfers_in INTEGER,
             transfers_out INTEGER,
+            expected_goals REAL,
+            expected_assists REAL,
+            expected_goal_involvements REAL,
             UNIQUE(player_id, gameweek)
         );
 
@@ -135,12 +135,28 @@ def init_db(db_path: str = "fpl.db"):
         );
     """)
 
-    # Safely add xG columns to existing DBs that predate this schema
-    for col in ["xg_per90", "xa_per90", "xgi_per90"]:
+    # Safely add columns to existing DBs that predate this schema
+    for col, typ in [
+        ("xg_per90", "REAL DEFAULT 0.0"),
+        ("xa_per90", "REAL DEFAULT 0.0"),
+        ("xgi_per90", "REAL DEFAULT 0.0"),
+    ]:
         try:
-            c.execute(f"ALTER TABLE players ADD COLUMN {col} REAL DEFAULT 0.0")
+            c.execute(f"ALTER TABLE players ADD COLUMN {col} {typ}")
         except Exception:
-            pass  # column already exists, fine
+            pass
+
+    # Add per-GW xG columns to history table if they don't exist yet
+    for col, typ in [
+        ("expected_goals", "REAL"),
+        ("expected_assists", "REAL"),
+        ("expected_goal_involvements", "REAL"),
+    ]:
+        try:
+            c.execute(f"ALTER TABLE player_gameweek_history ADD COLUMN {col} {typ}")
+            print(f"✅ Added column {col} to player_gameweek_history")
+        except Exception:
+            pass  # already exists
 
     conn.commit()
     conn.close()
@@ -151,14 +167,12 @@ POSITION_MAP = {1: "GKP", 2: "DEF", 3: "MID", 4: "FWD"}
 
 
 def sync_bootstrap(db_path: str = "fpl.db"):
-    """Sync teams, players, and gameweeks from bootstrap."""
     print("📡 Fetching bootstrap data...")
     data = get_bootstrap()
     conn = sqlite3.connect(db_path)
     c = conn.cursor()
     now = datetime.utcnow().isoformat()
 
-    # Teams
     for t in data["teams"]:
         c.execute("""
             INSERT OR REPLACE INTO teams VALUES (?,?,?,?,?,?,?,?)
@@ -166,8 +180,6 @@ def sync_bootstrap(db_path: str = "fpl.db"):
               t["strength_attack_home"], t["strength_attack_away"],
               t["strength_defence_home"], t["strength_defence_away"]))
 
-    # Players — preserve existing xG values with COALESCE so bootstrap
-    # sync doesn't wipe xG data that was set by a previous xG sync
     for p in data["elements"]:
         c.execute("""
             INSERT INTO players (
@@ -201,11 +213,8 @@ def sync_bootstrap(db_path: str = "fpl.db"):
                 transfers_in_event=excluded.transfers_in_event,
                 transfers_out_event=excluded.transfers_out_event,
                 updated_at=excluded.updated_at
-                -- xg_per90/xa_per90/xgi_per90 intentionally NOT updated here
-                -- so bootstrap syncs don't overwrite xG data
         """, (
-            p["id"],
-            p.get("code"),
+            p["id"], p.get("code"),
             p["web_name"],
             f"{p['first_name']} {p['second_name']}",
             p["team"],
@@ -229,7 +238,6 @@ def sync_bootstrap(db_path: str = "fpl.db"):
             now
         ))
 
-    # Gameweeks
     for gw in data["events"]:
         c.execute("""
             INSERT OR REPLACE INTO gameweeks VALUES (?,?,?,?,?,?,?,?)
@@ -245,7 +253,6 @@ def sync_bootstrap(db_path: str = "fpl.db"):
 
 
 def sync_fixtures(db_path: str = "fpl.db"):
-    """Sync fixture data."""
     print("📡 Fetching fixtures...")
     fixtures = get_fixtures()
     conn = sqlite3.connect(db_path)
@@ -267,7 +274,7 @@ def sync_fixtures(db_path: str = "fpl.db"):
 
 
 def sync_player_histories(db_path: str = "fpl.db", limit: int = None):
-    """Sync per-player GW history."""
+    """Sync per-player GW history including per-GW xG and xA from FPL API."""
     conn = sqlite3.connect(db_path)
     c = conn.cursor()
     c.execute("SELECT id FROM players ORDER BY total_points DESC")
@@ -289,14 +296,27 @@ def sync_player_histories(db_path: str = "fpl.db", limit: int = None):
                     INSERT OR REPLACE INTO player_gameweek_history
                     (player_id, gameweek, total_points, minutes, goals_scored,
                      assists, clean_sheets, bonus, bps, ict_index, value, selected,
-                     transfers_in, transfers_out)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                     transfers_in, transfers_out,
+                     expected_goals, expected_assists, expected_goal_involvements)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """, (
-                    pid, gw["round"], gw["total_points"], gw["minutes"],
-                    gw["goals_scored"], gw["assists"], gw["clean_sheets"],
-                    gw["bonus"], gw["bps"], float(gw["ict_index"] or 0),
-                    gw["value"] / 10.0, gw["selected"], gw["transfers_in"],
-                    gw["transfers_out"]
+                    pid,
+                    gw["round"],
+                    gw["total_points"],
+                    gw["minutes"],
+                    gw["goals_scored"],
+                    gw["assists"],
+                    gw["clean_sheets"],
+                    gw["bonus"],
+                    gw["bps"],
+                    float(gw["ict_index"] or 0),
+                    gw["value"] / 10.0,
+                    gw["selected"],
+                    gw["transfers_in"],
+                    gw["transfers_out"],
+                    float(gw.get("expected_goals") or 0),
+                    float(gw.get("expected_assists") or 0),
+                    float(gw.get("expected_goal_involvements") or 0),
                 ))
             conn.commit()
             conn.close()
@@ -311,16 +331,6 @@ def sync_player_histories(db_path: str = "fpl.db", limit: int = None):
 # ── xG INTEGRATION ────────────────────────────────────────────────────────────
 
 def fetch_understat_xg() -> dict:
-    """
-    Fetch per-90 xG, xA, xGI from Understat for the 2025/26 EPL season.
-
-    Uses understatapi (sync wrapper — no async needed).
-    Understat season key convention: the year the season STARTS.
-    2025/26 season → season="2025"
-
-    Returns dict keyed by player name:
-        { "Erling Haaland": { xg_per90: 0.82, xa_per90: 0.14, xgi_per90: 0.96, minutes: 1890 } }
-    """
     print(f"📡 Fetching Understat xG data for EPL {UNDERSTAT_SEASON}...")
     xg_data = {}
 
@@ -331,11 +341,11 @@ def fetch_understat_xg() -> dict:
         for p in players:
             try:
                 minutes = float(p.get("time", 0) or 0)
-                if minutes < 90:  # skip players with less than one full game
+                if minutes < 90:
                     continue
                 nineties = minutes / 90.0
-                xg  = float(p.get("xG",  0) or 0)
-                xa  = float(p.get("xA",  0) or 0)
+                xg  = float(p.get("xG", 0) or 0)
+                xa  = float(p.get("xA", 0) or 0)
                 xgi = xg + xa
 
                 xg_data[p["player_name"]] = {
@@ -350,20 +360,12 @@ def fetch_understat_xg() -> dict:
         print(f"✅ Understat: got xG data for {len(xg_data)} players")
 
     except Exception as e:
-        print(f"⚠️  Understat fetch failed: {e}. xG data skipped — FPL data unaffected.")
+        print(f"⚠️  Understat fetch failed: {e}. xG data skipped.")
 
     return xg_data
 
 
 def fuzzy_match_xg(fpl_players: list, xg_data: dict) -> dict:
-    """
-    Fuzzy-match FPL player full names to Understat player names.
-
-    fpl_players: list of (id, full_name, web_name) tuples
-    xg_data: output of fetch_understat_xg()
-
-    Returns: { fpl_player_id: { xg_per90, xa_per90, xgi_per90 } }
-    """
     if not xg_data:
         return {}
 
@@ -375,15 +377,13 @@ def fuzzy_match_xg(fpl_players: list, xg_data: dict) -> dict:
         best_match = None
         best_score = 0
 
-        # Try full name first (e.g. "Erling Haaland"), then web_name (e.g. "Haaland")
         for query in [full_name, web_name]:
             if not query:
                 continue
             result = process.extractOne(
-                query,
-                understat_names,
+                query, understat_names,
                 scorer=fuzz.token_sort_ratio,
-                score_cutoff=78,  # 0-100 scale; 78 is a good balance
+                score_cutoff=78,
             )
             if result and result[1] > best_score:
                 best_match = result
@@ -403,30 +403,22 @@ def fuzzy_match_xg(fpl_players: list, xg_data: dict) -> dict:
 
 
 def sync_xg(db_path: str = "fpl.db"):
-    """
-    Full xG sync: fetch from Understat, match to FPL players, store in DB.
-    Safe to run standalone or as part of full_sync().
-    """
-    # Load FPL players from DB
     conn = sqlite3.connect(db_path)
     c = conn.cursor()
     c.execute("SELECT id, full_name, web_name FROM players")
-    fpl_players = c.fetchall()  # list of (id, full_name, web_name)
+    fpl_players = c.fetchall()
     conn.close()
 
-    # Fetch from Understat
     xg_data = fetch_understat_xg()
     if not xg_data:
         print("⚠️  No xG data fetched — skipping DB update.")
         return
 
-    # Fuzzy match
     matched = fuzzy_match_xg(fpl_players, xg_data)
     if not matched:
         print("⚠️  No players matched — skipping DB update.")
         return
 
-    # Write to DB
     conn = sqlite3.connect(db_path)
     c = conn.cursor()
     for fpl_id, stats in matched.items():
@@ -445,7 +437,6 @@ def sync_xg(db_path: str = "fpl.db"):
 # ── SYNC ENTRY POINTS ─────────────────────────────────────────────────────────
 
 def full_sync(db_path: str = "fpl.db"):
-    """Run a complete data sync including xG."""
     init_db(db_path)
     sync_bootstrap(db_path)
     sync_fixtures(db_path)

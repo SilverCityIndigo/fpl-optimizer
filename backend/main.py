@@ -43,4 +43,10 @@ def manual_sync():
     sync_fixtures()
     sync_xg()
     return {"status": "Sync complete"}
- 
+
+@app.post("/admin/sync-history")
+def manual_sync_history():
+    from data.fpl_fetcher import init_db, sync_player_histories
+    init_db()
+    sync_player_histories()
+    return {"status": "History sync complete"}
