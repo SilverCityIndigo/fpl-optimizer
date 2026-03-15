@@ -2,12 +2,12 @@ import { useState, useEffect, useRef } from 'react'
 import {
   Chart as ChartJS,
   LinearScale, PointElement, LineElement, Tooltip as ChartTooltip,
-  Legend, CategoryScale, Filler, BarElement
+  Legend, CategoryScale, Filler
 } from 'chart.js'
-import { Line, Bar } from 'react-chartjs-2'
+import { Scatter, Line } from 'react-chartjs-2'
 import { getPlayers, getPlayerHistory } from '../api'
 
-ChartJS.register(LinearScale, PointElement, LineElement, ChartTooltip, Legend, CategoryScale, Filler, BarElement)
+ChartJS.register(LinearScale, PointElement, LineElement, ChartTooltip, Legend, CategoryScale, Filler)
 
 const POSITIONS = ['All', 'GKP', 'DEF', 'MID', 'FWD']
 const POS_COLORS = { GKP: '#f5a623', DEF: '#00b2ff', MID: '#00ff87', FWD: '#ff4444' }
@@ -24,7 +24,7 @@ const TH = ({ children }) => (
   </th>
 )
 
-// ─── Player Search Dropdown ──────────────────────────────────────────────────
+// ─── Shared Player Search ────────────────────────────────────────────────────
 function PlayerSearch({ players, onSelect, placeholder = 'Search player...', excludeId = null }) {
   const [search, setSearch] = useState('')
   const filtered = players
@@ -73,12 +73,69 @@ function PlayerSearch({ players, onSelect, placeholder = 'Search player...', exc
   )
 }
 
+// ─── GW Breakdown Table (shared) ────────────────────────────────────────────
+function GWTable({ history }) {
+  if (!history.length) return null
+  return (
+    <div>
+      <div style={{ color: '#fff', fontSize: '13px', fontWeight: 'bold', marginBottom: '10px' }}>Gameweek Breakdown</div>
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+          <thead>
+            <tr>
+              <TH>GW</TH>
+              <TH>Pts</TH>
+              <TH>Mins</TH>
+              <TH>Goals</TH>
+              <TH>Assists</TH>
+              <TH>xG</TH>
+              <TH>xA</TH>
+              <TH>CS</TH>
+              <TH>Bonus</TH>
+              <TH>BPS</TH>
+              <TH>ICT</TH>
+            </tr>
+          </thead>
+          <tbody>
+            {[...history].reverse().slice(0, 10).map(h => {
+              const xg = parseFloat(h.expected_goals || 0)
+              const xa = parseFloat(h.expected_assists || 0)
+              return (
+                <tr key={h.gameweek} style={{ borderBottom: '1px solid #1a1f2e' }}
+                  onMouseEnter={e => e.currentTarget.style.background = '#1a1f2e'}
+                  onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                  <td style={{ padding: '7px 10px', color: '#aaa' }}>GW{h.gameweek}</td>
+                  <td style={{ padding: '7px 10px', color: ptColor(h.total_points), fontWeight: 'bold' }}>{h.total_points}</td>
+                  <td style={{ padding: '7px 10px', color: h.minutes === 0 ? '#ff4444' : '#fff' }}>{h.minutes}'</td>
+                  <td style={{ padding: '7px 10px', color: h.goals_scored > 0 ? '#ffd700' : '#555' }}>{h.goals_scored || '—'}</td>
+                  <td style={{ padding: '7px 10px', color: h.assists > 0 ? '#7fff00' : '#555' }}>{h.assists || '—'}</td>
+                  <td style={{ padding: '7px 10px', color: xg > 0.3 ? '#00b2ff' : '#aaa' }}>{xg > 0 ? xg.toFixed(2) : '—'}</td>
+                  <td style={{ padding: '7px 10px', color: xa > 0.2 ? '#00b2ff' : '#aaa' }}>{xa > 0 ? xa.toFixed(2) : '—'}</td>
+                  <td style={{ padding: '7px 10px', color: h.clean_sheets > 0 ? '#00ff87' : '#555' }}>{h.clean_sheets > 0 ? '✓' : '—'}</td>
+                  <td style={{ padding: '7px 10px', color: h.bonus > 0 ? '#00ff87' : '#555' }}>{h.bonus || '—'}</td>
+                  <td style={{ padding: '7px 10px', color: '#aaa' }}>{h.bps ?? '—'}</td>
+                  <td style={{ padding: '7px 10px', color: '#aaa' }}>{h.ict_index != null ? parseFloat(h.ict_index).toFixed(1) : '—'}</td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+        {history.length > 10 && (
+          <div style={{ color: '#555', fontSize: '11px', marginTop: '6px', textAlign: 'right' }}>Showing last 10 GWs</div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ─── xG vs Goals Panel ──────────────────────────────────────────────────────
 function XGPanel({ players, selectedPlayer, onSelectPlayer }) {
   const [history, setHistory] = useState([])
   const [loading, setLoading] = useState(false)
   const [compare, setCompare] = useState(null)
   const [compareHistory, setCompareHistory] = useState([])
+  const [position, setPosition] = useState('All')
+  const chartRef = useRef(null)
 
   const selected = selectedPlayer
 
@@ -99,92 +156,148 @@ function XGPanel({ players, selectedPlayer, onSelectPlayer }) {
     } catch { setCompareHistory([]) }
   }
 
-  // Per-GW xG bar chart data
-  const xgBarData = {
-    labels: history.map(h => `GW${h.gameweek}`),
+  // Build scatter data — all players as context, selected highlighted
+  const filtered = players
+    .filter(p => position === 'All' || p.position === position)
+    .filter(p => p.xg_per90 != null && p.goals_scored != null && p.minutes > 180)
+    .map(p => ({
+      ...p,
+      xg_p90: parseFloat(p.xg_per90 || 0),
+      goals_p90: parseFloat(((p.goals_scored / p.minutes) * 90).toFixed(3)),
+    }))
+
+  const maxVal = Math.max(...filtered.map(p => Math.max(p.xg_p90, p.goals_p90)), 0.5) + 0.2
+
+  // Split into selected, compare, and others
+  const bgDots = filtered.filter(p => p.id !== selected?.id && p.id !== compare?.id)
+  const selectedDot = filtered.find(p => p.id === selected?.id)
+  const compareDot = filtered.find(p => p.id === compare?.id)
+
+  const scatterData = {
     datasets: [
       {
-        label: 'xG',
-        data: history.map(h => parseFloat(h.expected_goals || 0).toFixed(2)),
-        backgroundColor: 'rgba(0,178,255,0.7)',
-        borderRadius: 3,
+        label: 'Players',
+        data: bgDots.map(p => ({ x: p.xg_p90, y: p.goals_p90, player: p })),
+        backgroundColor: 'rgba(255,255,255,0.12)',
+        pointRadius: 4,
+        pointHoverRadius: 6,
       },
+      ...(selectedDot ? [{
+        label: selected.web_name,
+        data: [{ x: selectedDot.xg_p90, y: selectedDot.goals_p90, player: selectedDot }],
+        backgroundColor: POS_COLORS[selected.position] || '#00ff87',
+        pointRadius: 10,
+        pointHoverRadius: 13,
+        pointStyle: 'circle',
+      }] : []),
+      ...(compareDot ? [{
+        label: compare.web_name,
+        data: [{ x: compareDot.xg_p90, y: compareDot.goals_p90, player: compareDot }],
+        backgroundColor: '#ff8800',
+        pointRadius: 10,
+        pointHoverRadius: 13,
+      }] : []),
       {
-        label: 'Goals',
-        data: history.map(h => h.goals_scored || 0),
-        backgroundColor: 'rgba(255,215,0,0.7)',
-        borderRadius: 3,
-      },
-      ...(compare && compareHistory.length > 0 ? [
-        {
-          label: `${compare.web_name} xG`,
-          data: history.map(h => {
-            const m = compareHistory.find(c => c.gameweek === h.gameweek)
-            return m ? parseFloat(m.expected_goals || 0).toFixed(2) : 0
-          }),
-          backgroundColor: 'rgba(255,136,0,0.5)',
-          borderRadius: 3,
-        },
-        {
-          label: `${compare.web_name} Goals`,
-          data: history.map(h => {
-            const m = compareHistory.find(c => c.gameweek === h.gameweek)
-            return m ? (m.goals_scored || 0) : 0
-          }),
-          backgroundColor: 'rgba(255,68,68,0.5)',
-          borderRadius: 3,
-        }
-      ] : [])
+        label: 'xG = Goals',
+        data: [{ x: 0, y: 0 }, { x: maxVal, y: maxVal }],
+        type: 'line',
+        borderColor: '#3a4050',
+        borderDash: [6, 4],
+        borderWidth: 2,
+        pointRadius: 0,
+        fill: false,
+      }
     ]
   }
 
-  const barOptions = {
-    responsive: true, maintainAspectRatio: false, animation: false,
+  const scatterOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    animation: false,
+    onClick: (event, elements) => {
+      if (!elements.length) return
+      const el = elements[0]
+      const point = scatterData.datasets[el.datasetIndex].data[el.index]
+      if (point?.player) onSelectPlayer(point.player)
+    },
     plugins: {
-      legend: { labels: { color: '#aaa', boxWidth: 12, font: { size: 12 } } },
+      legend: { display: false },
       tooltip: {
+        callbacks: {
+          label: (ctx) => {
+            const p = ctx.raw?.player
+            if (!p) return ''
+            const diff = (p.goals_p90 - p.xg_p90).toFixed(3)
+            const sign = parseFloat(diff) >= 0 ? '+' : ''
+            return [
+              `${p.web_name} (${p.team_name})`,
+              `Goals/90: ${p.goals_p90.toFixed(3)}   xG/90: ${p.xg_p90.toFixed(3)}`,
+              `Diff: ${sign}${diff}`,
+            ]
+          }
+        },
         backgroundColor: '#0e1117', borderColor: '#2a2f3e', borderWidth: 1,
-        titleColor: '#aaa', bodyColor: '#fff',
+        titleColor: '#fff', bodyColor: '#aaa', padding: 12,
       }
     },
     scales: {
-      x: { ticks: { color: '#aaa', font: { size: 10 } }, grid: { color: '#1e2330' } },
-      y: { ticks: { color: '#aaa', font: { size: 11 } }, grid: { color: '#1e2330' }, beginAtZero: true }
+      x: {
+        title: { display: true, text: 'Expected Goals per 90 (xG/90)', color: '#aaa', font: { size: 13 } },
+        ticks: { color: '#aaa' }, grid: { color: '#1e2330' }, min: 0, max: maxVal,
+      },
+      y: {
+        title: { display: true, text: 'Actual Goals per 90', color: '#aaa', font: { size: 13 } },
+        ticks: { color: '#aaa' }, grid: { color: '#1e2330' }, min: 0, max: maxVal,
+      }
     }
   }
 
-  // Season xG summary
+  // Season xG totals from history
   const seasonXG = history.reduce((s, h) => s + parseFloat(h.expected_goals || 0), 0)
   const seasonXA = history.reduce((s, h) => s + parseFloat(h.expected_assists || 0), 0)
-  const seasonXGI = history.reduce((s, h) => s + parseFloat(h.expected_goal_involvements || 0), 0)
   const actualGoals = history.reduce((s, h) => s + (h.goals_scored || 0), 0)
-  const actualAssists = history.reduce((s, h) => s + (h.assists || 0), 0)
   const xgDiff = (actualGoals - seasonXG).toFixed(2)
 
   return (
     <div>
-      <div style={{ marginBottom: '20px' }}>
-        <PlayerSearch players={players} onSelect={onSelectPlayer} placeholder="Search player to analyse..." />
+      {/* Position filter + search */}
+      <div style={{ display: 'flex', gap: '12px', marginBottom: '20px', flexWrap: 'wrap', alignItems: 'center' }}>
+        <PlayerSearch players={players} onSelect={onSelectPlayer} placeholder="Search player to highlight..." />
+        <div style={{ display: 'flex', gap: '6px' }}>
+          {POSITIONS.map(pos => (
+            <button key={pos} onClick={() => setPosition(pos)} style={{
+              padding: '5px 12px', borderRadius: '6px',
+              border: `1px solid ${pos === 'All' ? '#00ff87' : POS_COLORS[pos] || '#00ff87'}`,
+              background: position === pos ? (POS_COLORS[pos] || '#00ff87') : 'transparent',
+              color: position === pos ? '#000' : '#fff',
+              cursor: 'pointer', fontWeight: position === pos ? 'bold' : 'normal', fontSize: '12px'
+            }}>{pos}</button>
+          ))}
+        </div>
+        <span style={{ color: '#555', fontSize: '12px' }}>{filtered.length} players · click any dot to select</span>
       </div>
 
-      {!selected && (
-        <div style={{ background: '#0e1117', borderRadius: '12px', padding: '48px', textAlign: 'center', border: '1px dashed #2a2f3e' }}>
-          <div style={{ fontSize: '32px', marginBottom: '12px' }}>⚽</div>
-          <div style={{ color: '#aaa', fontSize: '14px' }}>Search for a player to see their xG vs actual goals breakdown</div>
-        </div>
-      )}
+      {/* Scatter */}
+      <div style={{ height: '420px', marginBottom: '12px' }}>
+        <Scatter ref={chartRef} data={scatterData} options={scatterOptions} />
+      </div>
 
+      <div style={{ display: 'flex', gap: '16px', justifyContent: 'center', marginBottom: '24px' }}>
+        <span style={{ fontSize: '12px', color: '#00ff87' }}>▲ Above line = overperforming xG</span>
+        <span style={{ fontSize: '12px', color: '#ff8800' }}>▼ Below line = due a return</span>
+      </div>
+
+      {/* Selected player detail */}
       {selected && (
-        <div style={{ background: '#0e1117', borderRadius: '12px', padding: '20px', border: `1px solid ${POS_COLORS[selected.position] || '#00ff87'}` }}>
-          {/* Player header */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '20px', flexWrap: 'wrap' }}>
+        <div style={{ background: '#0e1117', borderRadius: '12px', padding: '20px', border: `1px solid ${POS_COLORS[selected.position] || '#00ff87'}`, marginBottom: '16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '16px', flexWrap: 'wrap' }}>
             {selected.code && (
               <img src={`https://resources.premierleague.com/premierleague/photos/players/110x140/p${selected.code}.png`}
-                style={{ height: '65px', objectFit: 'contain' }}
+                style={{ height: '60px', objectFit: 'contain' }}
                 onError={e => e.target.style.display = 'none'} />
             )}
             <div style={{ flex: 1 }}>
-              <div style={{ fontWeight: 'bold', fontSize: '20px' }}>{selected.web_name}</div>
+              <div style={{ fontWeight: 'bold', fontSize: '18px' }}>{selected.web_name}</div>
               <div style={{ color: '#aaa', fontSize: '13px' }}>{selected.team_name} · {selected.position} · £{selected.price}m</div>
             </div>
             {history.length > 0 && (
@@ -193,9 +306,9 @@ function XGPanel({ players, selectedPlayer, onSelectPlayer }) {
                   ['Goals', actualGoals, '#ffd700'],
                   ['xG (season)', seasonXG.toFixed(2), '#00b2ff'],
                   ['xG Diff', `${parseFloat(xgDiff) >= 0 ? '+' : ''}${xgDiff}`, parseFloat(xgDiff) >= 0 ? '#00ff87' : '#ff4444'],
-                  ['Assists', actualAssists, '#7fff00'],
                   ['xA (season)', seasonXA.toFixed(2), '#00b2ff'],
-                  ['xGI (season)', seasonXGI.toFixed(2), '#00ff87'],
+                  ['xG/90', parseFloat(selected.xg_per90 || 0).toFixed(3), '#aaa'],
+                  ['xA/90', parseFloat(selected.xa_per90 || 0).toFixed(3), '#aaa'],
                 ].map(([label, val, color]) => (
                   <div key={label} style={{ background: '#1a1f2e', borderRadius: '8px', padding: '8px 14px', textAlign: 'center' }}>
                     <div style={{ color: '#aaa', fontSize: '10px', marginBottom: '2px' }}>{label}</div>
@@ -206,7 +319,6 @@ function XGPanel({ players, selectedPlayer, onSelectPlayer }) {
             )}
           </div>
 
-          {/* xG insight tag */}
           {history.length > 0 && (
             <div style={{ marginBottom: '16px' }}>
               {parseFloat(xgDiff) >= 2 ? (
@@ -228,12 +340,7 @@ function XGPanel({ players, selectedPlayer, onSelectPlayer }) {
           {/* Compare */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px', flexWrap: 'wrap' }}>
             <span style={{ color: '#aaa', fontSize: '13px' }}>Compare with:</span>
-            <PlayerSearch
-              players={players}
-              onSelect={selectCompare}
-              placeholder="Search player to compare..."
-              excludeId={selected.id}
-            />
+            <PlayerSearch players={players} onSelect={selectCompare} placeholder="Search player..." excludeId={selected.id} />
             {compare && (
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <div style={{ width: '12px', height: '3px', background: '#ff8800', borderRadius: '2px' }} />
@@ -244,63 +351,10 @@ function XGPanel({ players, selectedPlayer, onSelectPlayer }) {
             )}
           </div>
 
-          {/* xG per GW bar chart */}
           {loading ? (
-            <p style={{ color: '#aaa', fontSize: '13px' }}>Loading data...</p>
-          ) : history.length > 0 ? (
-            <>
-              <div style={{ color: '#fff', fontSize: '13px', fontWeight: 'bold', marginBottom: '10px' }}>xG vs Goals per Gameweek</div>
-              <div style={{ height: '260px', marginBottom: '24px' }}>
-                <Bar data={xgBarData} options={barOptions} />
-              </div>
-            </>
+            <p style={{ color: '#aaa', fontSize: '13px' }}>Loading history...</p>
           ) : (
-            <p style={{ color: '#555', fontSize: '13px' }}>No gameweek data found.</p>
-          )}
-
-          {/* Per-GW breakdown table */}
-          {history.length > 0 && (
-            <div>
-              <div style={{ color: '#fff', fontSize: '13px', fontWeight: 'bold', marginBottom: '10px' }}>Gameweek Breakdown</div>
-              <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
-                  <thead>
-                    <tr>
-                      <TH>GW</TH><TH>Pts</TH><TH>Mins</TH><TH>Goals</TH>
-                      <TH>xG</TH><TH>Assists</TH><TH>xA</TH><TH>xGI</TH>
-                      <TH>CS</TH><TH>Bonus</TH><TH>ICT</TH>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {[...history].reverse().slice(0, 10).map(h => {
-                      const xg = parseFloat(h.expected_goals || 0)
-                      const xa = parseFloat(h.expected_assists || 0)
-                      const xgi = parseFloat(h.expected_goal_involvements || 0)
-                      return (
-                        <tr key={h.gameweek} style={{ borderBottom: '1px solid #1a1f2e' }}
-                          onMouseEnter={e => e.currentTarget.style.background = '#1a1f2e'}
-                          onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                          <td style={{ padding: '7px 10px', color: '#aaa' }}>GW{h.gameweek}</td>
-                          <td style={{ padding: '7px 10px', color: ptColor(h.total_points), fontWeight: 'bold' }}>{h.total_points}</td>
-                          <td style={{ padding: '7px 10px', color: h.minutes === 0 ? '#ff4444' : '#fff' }}>{h.minutes}'</td>
-                          <td style={{ padding: '7px 10px', color: h.goals_scored > 0 ? '#ffd700' : '#555' }}>{h.goals_scored || '—'}</td>
-                          <td style={{ padding: '7px 10px', color: xg > 0.3 ? '#00b2ff' : '#aaa' }}>{xg > 0 ? xg.toFixed(2) : '—'}</td>
-                          <td style={{ padding: '7px 10px', color: h.assists > 0 ? '#7fff00' : '#555' }}>{h.assists || '—'}</td>
-                          <td style={{ padding: '7px 10px', color: xa > 0.2 ? '#00b2ff' : '#aaa' }}>{xa > 0 ? xa.toFixed(2) : '—'}</td>
-                          <td style={{ padding: '7px 10px', color: xgi > 0.4 ? '#00ff87' : '#aaa' }}>{xgi > 0 ? xgi.toFixed(2) : '—'}</td>
-                          <td style={{ padding: '7px 10px', color: h.clean_sheets > 0 ? '#00ff87' : '#555' }}>{h.clean_sheets > 0 ? '✓' : '—'}</td>
-                          <td style={{ padding: '7px 10px', color: h.bonus > 0 ? '#00ff87' : '#555' }}>{h.bonus || '—'}</td>
-                          <td style={{ padding: '7px 10px', color: '#aaa' }}>{h.ict_index != null ? parseFloat(h.ict_index).toFixed(1) : '—'}</td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-                {history.length > 10 && (
-                  <div style={{ color: '#555', fontSize: '11px', marginTop: '6px', textAlign: 'right' }}>Showing last 10 GWs</div>
-                )}
-              </div>
-            </div>
+            <GWTable history={history} />
           )}
         </div>
       )}
@@ -431,7 +485,6 @@ function FormTimeline({ players, selectedPlayer, onSelectPlayer }) {
                   ['Form', selected.form, '#00b2ff'],
                   ['xG/90', parseFloat(selected.xg_per90 || 0).toFixed(3), '#00b2ff'],
                   ['xA/90', parseFloat(selected.xa_per90 || 0).toFixed(3), '#00b2ff'],
-                  ['xGI/90', parseFloat(selected.xgi_per90 || 0).toFixed(3), '#00ff87'],
                 ].map(([label, val, color]) => (
                   <div key={label} style={{ background: '#1a1f2e', borderRadius: '8px', padding: '8px 14px', textAlign: 'center' }}>
                     <div style={{ color: '#aaa', fontSize: '10px', marginBottom: '2px' }}>{label}</div>
@@ -444,12 +497,7 @@ function FormTimeline({ players, selectedPlayer, onSelectPlayer }) {
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px', flexWrap: 'wrap' }}>
             <span style={{ color: '#aaa', fontSize: '13px' }}>Compare with:</span>
-            <PlayerSearch
-              players={players}
-              onSelect={selectCompare}
-              placeholder="Search player to compare..."
-              excludeId={selected.id}
-            />
+            <PlayerSearch players={players} onSelect={selectCompare} placeholder="Search player to compare..." excludeId={selected.id} />
             {compare && (
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <div style={{ width: '12px', height: '3px', background: '#ff8800', borderRadius: '2px' }} />
@@ -468,50 +516,7 @@ function FormTimeline({ players, selectedPlayer, onSelectPlayer }) {
             </div>
           )}
 
-          {history.length > 0 && (
-            <div>
-              <div style={{ color: '#fff', fontSize: '13px', fontWeight: 'bold', marginBottom: '10px' }}>Gameweek Breakdown</div>
-              <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
-                  <thead>
-                    <tr>
-                      <TH>GW</TH><TH>Pts</TH><TH>Mins</TH><TH>Goals</TH>
-                      <TH>xG</TH><TH>Assists</TH><TH>xA</TH><TH>xGI</TH>
-                      <TH>CS</TH><TH>Bonus</TH><TH>BPS</TH><TH>ICT</TH>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {[...history].reverse().slice(0, 10).map(h => {
-                      const xg = parseFloat(h.expected_goals || 0)
-                      const xa = parseFloat(h.expected_assists || 0)
-                      const xgi = parseFloat(h.expected_goal_involvements || 0)
-                      return (
-                        <tr key={h.gameweek} style={{ borderBottom: '1px solid #1a1f2e' }}
-                          onMouseEnter={e => e.currentTarget.style.background = '#1a1f2e'}
-                          onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                          <td style={{ padding: '7px 10px', color: '#aaa' }}>GW{h.gameweek}</td>
-                          <td style={{ padding: '7px 10px', color: ptColor(h.total_points), fontWeight: 'bold' }}>{h.total_points}</td>
-                          <td style={{ padding: '7px 10px', color: h.minutes === 0 ? '#ff4444' : '#fff' }}>{h.minutes}'</td>
-                          <td style={{ padding: '7px 10px', color: h.goals_scored > 0 ? '#ffd700' : '#555' }}>{h.goals_scored || '—'}</td>
-                          <td style={{ padding: '7px 10px', color: xg > 0.3 ? '#00b2ff' : '#aaa' }}>{xg > 0 ? xg.toFixed(2) : '—'}</td>
-                          <td style={{ padding: '7px 10px', color: h.assists > 0 ? '#7fff00' : '#555' }}>{h.assists || '—'}</td>
-                          <td style={{ padding: '7px 10px', color: xa > 0.2 ? '#00b2ff' : '#aaa' }}>{xa > 0 ? xa.toFixed(2) : '—'}</td>
-                          <td style={{ padding: '7px 10px', color: xgi > 0.4 ? '#00ff87' : '#aaa' }}>{xgi > 0 ? xgi.toFixed(2) : '—'}</td>
-                          <td style={{ padding: '7px 10px', color: h.clean_sheets > 0 ? '#00ff87' : '#555' }}>{h.clean_sheets > 0 ? '✓' : '—'}</td>
-                          <td style={{ padding: '7px 10px', color: h.bonus > 0 ? '#00ff87' : '#555' }}>{h.bonus || '—'}</td>
-                          <td style={{ padding: '7px 10px', color: '#aaa' }}>{h.bps ?? '—'}</td>
-                          <td style={{ padding: '7px 10px', color: '#aaa' }}>{h.ict_index != null ? parseFloat(h.ict_index).toFixed(1) : '—'}</td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-                {history.length > 10 && (
-                  <div style={{ color: '#555', fontSize: '11px', marginTop: '6px', textAlign: 'right' }}>Showing last 10 GWs</div>
-                )}
-              </div>
-            </div>
-          )}
+          <GWTable history={history} />
         </div>
       )}
     </div>
@@ -539,7 +544,7 @@ export default function Analytics({ initialPlayer = null }) {
   }, [initialPlayer])
 
   const tabs = [
-    { key: 'xg',       label: '⚽ xG vs Goals',  desc: 'Per-gameweek xG vs actual goals for any player' },
+    { key: 'xg',       label: '⚽ xG vs Goals',  desc: 'See where any player sits vs their peers — click to highlight' },
     { key: 'timeline', label: '📈 Form Timeline', desc: 'GW-by-GW scoring history for any player' },
   ]
 
