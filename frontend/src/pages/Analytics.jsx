@@ -473,7 +473,7 @@ function XGPanel({ players, selectedPlayer, onSelectPlayer }) {
             {compare && (
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <div style={{ width: '12px', height: '3px', background: '#ff8800', borderRadius: '2px' }} />
-                <span style={{ color: '#ff8800', fontSize: '13px', fontWeight: 'bold' }}>{compare.web_name}</span>
+                <span style={{ color: '#fff', fontSize: '13px', fontWeight: 'bold' }}>{compare.web_name}</span>
                 <button onClick={() => { setCompare(null); setCompareHistory([]) }}
                   style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer', fontSize: '16px', lineHeight: 1 }}>×</button>
               </div>
@@ -627,7 +627,7 @@ function FormTimeline({ players, selectedPlayer, onSelectPlayer }) {
             {compare && (
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <div style={{ width: '12px', height: '3px', background: '#ff8800', borderRadius: '2px' }} />
-                <span style={{ color: '#ff8800', fontSize: '13px', fontWeight: 'bold' }}>{compare.web_name}</span>
+                <span style={{ color: '#fff', fontSize: '13px', fontWeight: 'bold' }}>{compare.web_name}</span>
                 <button onClick={() => { setCompare(null); setCompareHistory([]) }}
                   style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer', fontSize: '16px', lineHeight: 1 }}>×</button>
               </div>
