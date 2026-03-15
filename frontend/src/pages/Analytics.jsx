@@ -19,7 +19,7 @@ function ptColor(pts) {
 }
 
 const TH = ({ children }) => (
-  <th style={{ padding: '10px 14px', textAlign: 'left', color: '#fff', fontWeight: 'bold', fontSize: '13px', borderBottom: '1px solid #2a2f3e' }}>
+  <th style={{ padding: '8px 10px', textAlign: 'left', color: '#fff', fontWeight: 'bold', fontSize: '12px', borderBottom: '1px solid #2a2f3e' }}>
     {children}
   </th>
 )
@@ -80,7 +80,7 @@ function GWTable({ history }) {
     <div>
       <div style={{ color: '#fff', fontSize: '13px', fontWeight: 'bold', marginBottom: '10px' }}>Gameweek Breakdown</div>
       <div style={{ overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
           <thead>
             <tr>
               <TH>GW</TH>
@@ -104,17 +104,17 @@ function GWTable({ history }) {
                 <tr key={h.gameweek} style={{ borderBottom: '1px solid #1a1f2e' }}
                   onMouseEnter={e => e.currentTarget.style.background = '#1a1f2e'}
                   onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                  <td style={{ padding: '9px 14px', color: '#aaa' }}>GW{h.gameweek}</td>
-                  <td style={{ padding: '9px 14px', color: h.minutes === 0 ? '#ff4444' : '#fff' }}>{h.minutes}'</td>
-                  <td style={{ padding: '9px 14px', color: ptColor(h.total_points), fontWeight: 'bold' }}>{h.total_points}</td>
-                  <td style={{ padding: '9px 14px', color: h.goals_scored > 0 ? '#ffd700' : '#555' }}>{h.goals_scored || '—'}</td>
-                  <td style={{ padding: '9px 14px', color: h.assists > 0 ? '#7fff00' : '#555' }}>{h.assists || '—'}</td>
-                  <td style={{ padding: '9px 14px', color: h.clean_sheets > 0 ? '#00ff87' : '#555' }}>{h.clean_sheets > 0 ? '✓' : '—'}</td>
-                  <td style={{ padding: '9px 14px', color: xg > 0.3 ? '#00b2ff' : '#aaa' }}>{xg > 0 ? xg.toFixed(2) : '—'}</td>
-                  <td style={{ padding: '9px 14px', color: xa > 0.2 ? '#00b2ff' : '#aaa' }}>{xa > 0 ? xa.toFixed(2) : '—'}</td>
-                  <td style={{ padding: '9px 14px', color: '#aaa' }}>{h.ict_index != null ? parseFloat(h.ict_index).toFixed(1) : '—'}</td>
-                  <td style={{ padding: '9px 14px', color: h.bonus > 0 ? '#00ff87' : '#555' }}>{h.bonus || '—'}</td>
-                  <td style={{ padding: '9px 14px', color: '#aaa' }}>{h.bps ?? '—'}</td>
+                  <td style={{ padding: '7px 10px', color: '#aaa' }}>GW{h.gameweek}</td>
+                  <td style={{ padding: '7px 10px', color: h.minutes === 0 ? '#ff4444' : '#fff' }}>{h.minutes}'</td>
+                  <td style={{ padding: '7px 10px', color: ptColor(h.total_points), fontWeight: 'bold' }}>{h.total_points}</td>
+                  <td style={{ padding: '7px 10px', color: h.goals_scored > 0 ? '#ffd700' : '#555' }}>{h.goals_scored || '—'}</td>
+                  <td style={{ padding: '7px 10px', color: h.assists > 0 ? '#7fff00' : '#555' }}>{h.assists || '—'}</td>
+                  <td style={{ padding: '7px 10px', color: h.clean_sheets > 0 ? '#00ff87' : '#555' }}>{h.clean_sheets > 0 ? '✓' : '—'}</td>
+                  <td style={{ padding: '7px 10px', color: xg > 0.3 ? '#00b2ff' : '#aaa' }}>{xg > 0 ? xg.toFixed(2) : '—'}</td>
+                  <td style={{ padding: '7px 10px', color: xa > 0.2 ? '#00b2ff' : '#aaa' }}>{xa > 0 ? xa.toFixed(2) : '—'}</td>
+                  <td style={{ padding: '7px 10px', color: '#aaa' }}>{h.ict_index != null ? parseFloat(h.ict_index).toFixed(1) : '—'}</td>
+                  <td style={{ padding: '7px 10px', color: h.bonus > 0 ? '#00ff87' : '#555' }}>{h.bonus || '—'}</td>
+                  <td style={{ padding: '7px 10px', color: '#aaa' }}>{h.bps ?? '—'}</td>
                 </tr>
               )
             })}
@@ -278,7 +278,7 @@ function XGPanel({ players, selectedPlayer, onSelectPlayer }) {
       </div>
 
       {/* Scatter */}
-      <div style={{ height: '500px', marginBottom: '12px' }}>
+      <div style={{ height: '420px', marginBottom: '12px' }}>
         <Scatter ref={chartRef} data={scatterData} options={scatterOptions} />
       </div>
 
@@ -511,7 +511,7 @@ function FormTimeline({ players, selectedPlayer, onSelectPlayer }) {
           {loading ? (
             <p style={{ color: '#aaa', fontSize: '13px' }}>Loading timeline...</p>
           ) : (
-            <div style={{ height: '340px', marginBottom: '24px' }}>
+            <div style={{ height: '280px', marginBottom: '24px' }}>
               <Line data={lineData} options={lineOptions} />
             </div>
           )}
@@ -552,7 +552,7 @@ export default function Analytics({ initialPlayer = null }) {
     <div>
       <h2 style={{ marginBottom: '6px', color: '#00ff87' }}>📊 Analytics</h2>
       <p style={{ color: '#aaa', marginBottom: '24px', fontSize: '14px' }}>
-        More stats and cool charts! 
+        Deeper stats and visualisations — go beyond the surface numbers.
       </p>
 
       <div style={{ display: 'flex', gap: '10px', marginBottom: '28px', flexWrap: 'wrap' }}>
