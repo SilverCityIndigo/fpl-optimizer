@@ -12,17 +12,14 @@ Season key for 2025/26 = "2025" (Understat uses the start year).
 
 import requests
 import sqlite3
-import asyncio
 from datetime import datetime
 from rapidfuzz import process, fuzz
 from understatapi import UnderstatClient
 
 BASE_URL = "https://fantasy.premierleague.com/api"
-UNDERSTAT_SEASON = "2025"  # 2025/26 season → Understat key is "2025"
+UNDERSTAT_SEASON = "2025"
 
-HEADERS = {
-    "User-Agent": "Mozilla/5.0"
-}
+HEADERS = {"User-Agent": "Mozilla/5.0"}
 
 
 def get_bootstrap():
@@ -118,6 +115,20 @@ def init_db(db_path: str = "fpl.db"):
             expected_goals REAL,
             expected_assists REAL,
             expected_goal_involvements REAL,
+            expected_goals_conceded REAL,
+            saves INTEGER,
+            defensive_contribution INTEGER,
+            clearances_blocks_interceptions INTEGER,
+            recoveries INTEGER,
+            tackles INTEGER,
+            influence REAL,
+            creativity REAL,
+            threat REAL,
+            yellow_cards INTEGER,
+            red_cards INTEGER,
+            own_goals INTEGER,
+            penalties_saved INTEGER,
+            penalties_missed INTEGER,
             UNIQUE(player_id, gameweek)
         );
 
@@ -135,7 +146,7 @@ def init_db(db_path: str = "fpl.db"):
         );
     """)
 
-    # Safely add columns to existing DBs that predate this schema
+    # Safely add columns to players table
     for col, typ in [
         ("xg_per90", "REAL DEFAULT 0.0"),
         ("xa_per90", "REAL DEFAULT 0.0"),
@@ -146,17 +157,32 @@ def init_db(db_path: str = "fpl.db"):
         except Exception:
             pass
 
-    # Add per-GW xG columns to history table if they don't exist yet
-    for col, typ in [
+    # Safely add all new columns to history table
+    new_history_cols = [
         ("expected_goals", "REAL"),
         ("expected_assists", "REAL"),
         ("expected_goal_involvements", "REAL"),
-    ]:
+        ("expected_goals_conceded", "REAL"),
+        ("saves", "INTEGER"),
+        ("defensive_contribution", "INTEGER"),
+        ("clearances_blocks_interceptions", "INTEGER"),
+        ("recoveries", "INTEGER"),
+        ("tackles", "INTEGER"),
+        ("influence", "REAL"),
+        ("creativity", "REAL"),
+        ("threat", "REAL"),
+        ("yellow_cards", "INTEGER"),
+        ("red_cards", "INTEGER"),
+        ("own_goals", "INTEGER"),
+        ("penalties_saved", "INTEGER"),
+        ("penalties_missed", "INTEGER"),
+    ]
+    for col, typ in new_history_cols:
         try:
             c.execute(f"ALTER TABLE player_gameweek_history ADD COLUMN {col} {typ}")
             print(f"✅ Added column {col} to player_gameweek_history")
         except Exception:
-            pass  # already exists
+            pass
 
     conn.commit()
     conn.close()
@@ -174,11 +200,10 @@ def sync_bootstrap(db_path: str = "fpl.db"):
     now = datetime.utcnow().isoformat()
 
     for t in data["teams"]:
-        c.execute("""
-            INSERT OR REPLACE INTO teams VALUES (?,?,?,?,?,?,?,?)
-        """, (t["id"], t["name"], t["short_name"], t["strength"],
-              t["strength_attack_home"], t["strength_attack_away"],
-              t["strength_defence_home"], t["strength_defence_away"]))
+        c.execute("INSERT OR REPLACE INTO teams VALUES (?,?,?,?,?,?,?,?)",
+            (t["id"], t["name"], t["short_name"], t["strength"],
+             t["strength_attack_home"], t["strength_attack_away"],
+             t["strength_defence_home"], t["strength_defence_away"]))
 
     for p in data["elements"]:
         c.execute("""
@@ -191,22 +216,16 @@ def sync_bootstrap(db_path: str = "fpl.db"):
                 xg_per90, xa_per90, xgi_per90, updated_at
             ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0.0,0.0,0.0,?)
             ON CONFLICT(id) DO UPDATE SET
-                code=excluded.code,
-                web_name=excluded.web_name,
-                full_name=excluded.full_name,
-                team_id=excluded.team_id,
-                position=excluded.position,
-                price=excluded.price,
+                code=excluded.code, web_name=excluded.web_name,
+                full_name=excluded.full_name, team_id=excluded.team_id,
+                position=excluded.position, price=excluded.price,
                 total_points=excluded.total_points,
                 points_per_game=excluded.points_per_game,
                 form=excluded.form,
                 selected_by_percent=excluded.selected_by_percent,
-                minutes=excluded.minutes,
-                goals_scored=excluded.goals_scored,
-                assists=excluded.assists,
-                clean_sheets=excluded.clean_sheets,
-                bonus=excluded.bonus,
-                ict_index=excluded.ict_index,
+                minutes=excluded.minutes, goals_scored=excluded.goals_scored,
+                assists=excluded.assists, clean_sheets=excluded.clean_sheets,
+                bonus=excluded.bonus, ict_index=excluded.ict_index,
                 news=excluded.news,
                 chance_of_playing_next_round=excluded.chance_of_playing_next_round,
                 status=excluded.status,
@@ -224,24 +243,16 @@ def sync_bootstrap(db_path: str = "fpl.db"):
             float(p["points_per_game"] or 0),
             float(p["form"] or 0),
             float(p.get("selected_by_percent") or p.get("selected_by_pct") or 0),
-            p["minutes"],
-            p["goals_scored"],
-            p["assists"],
-            p["clean_sheets"],
-            p["bonus"],
-            float(p["ict_index"] or 0),
-            p.get("news", ""),
-            p.get("chance_of_playing_next_round"),
+            p["minutes"], p["goals_scored"], p["assists"], p["clean_sheets"],
+            p["bonus"], float(p["ict_index"] or 0),
+            p.get("news", ""), p.get("chance_of_playing_next_round"),
             p["status"],
-            p.get("transfers_in_event", 0),
-            p.get("transfers_out_event", 0),
+            p.get("transfers_in_event", 0), p.get("transfers_out_event", 0),
             now
         ))
 
     for gw in data["events"]:
-        c.execute("""
-            INSERT OR REPLACE INTO gameweeks VALUES (?,?,?,?,?,?,?,?)
-        """, (
+        c.execute("INSERT OR REPLACE INTO gameweeks VALUES (?,?,?,?,?,?,?,?)", (
             gw["id"], gw["name"], gw["deadline_time"],
             int(gw["finished"]), int(gw["is_current"]), int(gw["is_next"]),
             gw.get("average_entry_score"), gw.get("highest_score")
@@ -249,7 +260,7 @@ def sync_bootstrap(db_path: str = "fpl.db"):
 
     conn.commit()
     conn.close()
-    print(f"✅ Synced {len(data['elements'])} players, {len(data['teams'])} teams, {len(data['events'])} gameweeks.")
+    print(f"✅ Synced {len(data['elements'])} players, {len(data['teams'])} teams.")
 
 
 def sync_fixtures(db_path: str = "fpl.db"):
@@ -257,24 +268,20 @@ def sync_fixtures(db_path: str = "fpl.db"):
     fixtures = get_fixtures()
     conn = sqlite3.connect(db_path)
     c = conn.cursor()
-
     for f in fixtures:
-        c.execute("""
-            INSERT OR REPLACE INTO fixtures VALUES (?,?,?,?,?,?,?,?,?,?)
-        """, (
+        c.execute("INSERT OR REPLACE INTO fixtures VALUES (?,?,?,?,?,?,?,?,?,?)", (
             f["id"], f.get("event"), f["team_h"], f["team_a"],
             f["team_h_difficulty"], f["team_a_difficulty"],
             f.get("team_h_score"), f.get("team_a_score"),
             int(f["finished"]), f.get("kickoff_time")
         ))
-
     conn.commit()
     conn.close()
     print(f"✅ Synced {len(fixtures)} fixtures.")
 
 
 def sync_player_histories(db_path: str = "fpl.db", limit: int = None):
-    """Sync per-player GW history including per-GW xG and xA from FPL API."""
+    """Sync per-player GW history with all available fields from FPL API."""
     conn = sqlite3.connect(db_path)
     c = conn.cursor()
     c.execute("SELECT id FROM players ORDER BY total_points DESC")
@@ -293,12 +300,17 @@ def sync_player_histories(db_path: str = "fpl.db", limit: int = None):
             c = conn.cursor()
             for gw in data["history"]:
                 c.execute("""
-                    INSERT OR REPLACE INTO player_gameweek_history
-                    (player_id, gameweek, total_points, minutes, goals_scored,
-                     assists, clean_sheets, bonus, bps, ict_index, value, selected,
-                     transfers_in, transfers_out,
-                     expected_goals, expected_assists, expected_goal_involvements)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    INSERT OR REPLACE INTO player_gameweek_history (
+                        player_id, gameweek, total_points, minutes,
+                        goals_scored, assists, clean_sheets, bonus, bps,
+                        ict_index, value, selected, transfers_in, transfers_out,
+                        expected_goals, expected_assists, expected_goal_involvements,
+                        expected_goals_conceded, saves, defensive_contribution,
+                        clearances_blocks_interceptions, recoveries, tackles,
+                        influence, creativity, threat,
+                        yellow_cards, red_cards, own_goals,
+                        penalties_saved, penalties_missed
+                    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """, (
                     pid,
                     gw["round"],
@@ -317,6 +329,20 @@ def sync_player_histories(db_path: str = "fpl.db", limit: int = None):
                     float(gw.get("expected_goals") or 0),
                     float(gw.get("expected_assists") or 0),
                     float(gw.get("expected_goal_involvements") or 0),
+                    float(gw.get("expected_goals_conceded") or 0),
+                    int(gw.get("saves") or 0),
+                    int(gw.get("defensive_contribution") or 0),
+                    int(gw.get("clearances_blocks_interceptions") or 0),
+                    int(gw.get("recoveries") or 0),
+                    int(gw.get("tackles") or 0),
+                    float(gw.get("influence") or 0),
+                    float(gw.get("creativity") or 0),
+                    float(gw.get("threat") or 0),
+                    int(gw.get("yellow_cards") or 0),
+                    int(gw.get("red_cards") or 0),
+                    int(gw.get("own_goals") or 0),
+                    int(gw.get("penalties_saved") or 0),
+                    int(gw.get("penalties_missed") or 0),
                 ))
             conn.commit()
             conn.close()
@@ -333,11 +359,9 @@ def sync_player_histories(db_path: str = "fpl.db", limit: int = None):
 def fetch_understat_xg() -> dict:
     print(f"📡 Fetching Understat xG data for EPL {UNDERSTAT_SEASON}...")
     xg_data = {}
-
     try:
         with UnderstatClient() as understat:
             players = understat.league(league="EPL").get_player_data(season=UNDERSTAT_SEASON)
-
         for p in players:
             try:
                 minutes = float(p.get("time", 0) or 0)
@@ -346,59 +370,44 @@ def fetch_understat_xg() -> dict:
                 nineties = minutes / 90.0
                 xg  = float(p.get("xG", 0) or 0)
                 xa  = float(p.get("xA", 0) or 0)
-                xgi = xg + xa
-
                 xg_data[p["player_name"]] = {
-                    "xg_per90":  round(xg  / nineties, 3),
-                    "xa_per90":  round(xa  / nineties, 3),
-                    "xgi_per90": round(xgi / nineties, 3),
+                    "xg_per90":  round(xg / nineties, 3),
+                    "xa_per90":  round(xa / nineties, 3),
+                    "xgi_per90": round((xg + xa) / nineties, 3),
                     "minutes":   int(minutes),
                 }
             except (ValueError, TypeError, KeyError):
                 continue
-
         print(f"✅ Understat: got xG data for {len(xg_data)} players")
-
     except Exception as e:
-        print(f"⚠️  Understat fetch failed: {e}. xG data skipped.")
-
+        print(f"⚠️  Understat fetch failed: {e}.")
     return xg_data
 
 
 def fuzzy_match_xg(fpl_players: list, xg_data: dict) -> dict:
     if not xg_data:
         return {}
-
     understat_names = list(xg_data.keys())
     matched = {}
     unmatched = []
-
     for fpl_id, full_name, web_name in fpl_players:
         best_match = None
         best_score = 0
-
         for query in [full_name, web_name]:
             if not query:
                 continue
-            result = process.extractOne(
-                query, understat_names,
-                scorer=fuzz.token_sort_ratio,
-                score_cutoff=78,
-            )
+            result = process.extractOne(query, understat_names,
+                scorer=fuzz.token_sort_ratio, score_cutoff=78)
             if result and result[1] > best_score:
                 best_match = result
                 best_score = result[1]
-
         if best_match:
-            us_name, score, _ = best_match
-            matched[fpl_id] = {**xg_data[us_name]}
+            matched[fpl_id] = {**xg_data[best_match[0]]}
         else:
             unmatched.append(full_name)
-
-    print(f"✅ Fuzzy matched {len(matched)}/{len(fpl_players)} FPL players to Understat")
+    print(f"✅ Fuzzy matched {len(matched)}/{len(fpl_players)} players to Understat")
     if unmatched[:5]:
         print(f"   Unmatched examples: {unmatched[:5]}")
-
     return matched
 
 
@@ -408,27 +417,19 @@ def sync_xg(db_path: str = "fpl.db"):
     c.execute("SELECT id, full_name, web_name FROM players")
     fpl_players = c.fetchall()
     conn.close()
-
     xg_data = fetch_understat_xg()
     if not xg_data:
-        print("⚠️  No xG data fetched — skipping DB update.")
+        print("⚠️  No xG data — skipping.")
         return
-
     matched = fuzzy_match_xg(fpl_players, xg_data)
     if not matched:
-        print("⚠️  No players matched — skipping DB update.")
+        print("⚠️  No matches — skipping.")
         return
-
     conn = sqlite3.connect(db_path)
     c = conn.cursor()
     for fpl_id, stats in matched.items():
-        c.execute("""
-            UPDATE players
-            SET xg_per90  = ?,
-                xa_per90  = ?,
-                xgi_per90 = ?
-            WHERE id = ?
-        """, (stats["xg_per90"], stats["xa_per90"], stats["xgi_per90"], fpl_id))
+        c.execute("UPDATE players SET xg_per90=?, xa_per90=?, xgi_per90=? WHERE id=?",
+            (stats["xg_per90"], stats["xa_per90"], stats["xgi_per90"], fpl_id))
     conn.commit()
     conn.close()
     print(f"✅ xG data stored for {len(matched)} players.")
