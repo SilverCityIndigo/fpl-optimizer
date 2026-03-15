@@ -2,12 +2,12 @@ import { useState, useEffect, useRef } from 'react'
 import {
   Chart as ChartJS,
   LinearScale, PointElement, LineElement, Tooltip as ChartTooltip,
-  Legend, CategoryScale, Filler
+  Legend, CategoryScale, Filler, BarElement
 } from 'chart.js'
-import { Scatter, Line } from 'react-chartjs-2'
+import { Scatter, Line, Bar } from 'react-chartjs-2'
 import { getPlayers, getPlayerHistory } from '../api'
 
-ChartJS.register(LinearScale, PointElement, LineElement, ChartTooltip, Legend, CategoryScale, Filler)
+ChartJS.register(LinearScale, PointElement, LineElement, ChartTooltip, Legend, CategoryScale, Filler, BarElement)
 
 const POSITIONS = ['All', 'GKP', 'DEF', 'MID', 'FWD']
 const POS_COLORS = { GKP: '#f5a623', DEF: '#00b2ff', MID: '#00ff87', FWD: '#ff4444' }
@@ -22,6 +22,10 @@ const TH = ({ children }) => (
   <th style={{ padding: '8px 10px', textAlign: 'left', color: '#fff', fontWeight: 'bold', fontSize: '12px', borderBottom: '1px solid #2a2f3e' }}>
     {children}
   </th>
+)
+
+const TD = ({ children, color = '#aaa', bold = false }) => (
+  <td style={{ padding: '7px 10px', color, fontWeight: bold ? 'bold' : 'normal' }}>{children}</td>
 )
 
 // ─── Shared Player Search ────────────────────────────────────────────────────
@@ -73,9 +77,19 @@ function PlayerSearch({ players, onSelect, placeholder = 'Search player...', exc
   )
 }
 
-// ─── GW Breakdown Table (shared) ────────────────────────────────────────────
-function GWTable({ history }) {
+// ─── Position-aware GW Breakdown Table ──────────────────────────────────────
+function GWTable({ history, position }) {
   if (!history.length) return null
+
+  const isGKP = position === 'GKP'
+  const isDEF = position === 'DEF'
+  const isMID = position === 'MID'
+  const isFWD = position === 'FWD'
+  const hasAttack = !isGKP
+
+  // Defcon thresholds: DEF=10, MID/FWD=12
+  const defconThreshold = isDEF ? 10 : 12
+
   return (
     <div>
       <div style={{ color: '#fff', fontSize: '13px', fontWeight: 'bold', marginBottom: '10px' }}>Gameweek Breakdown</div>
@@ -86,35 +100,69 @@ function GWTable({ history }) {
               <TH>GW</TH>
               <TH>Mins</TH>
               <TH>Pts</TH>
-              <TH>Goals</TH>
-              <TH>Assists</TH>
-              <TH>CS</TH>
-              <TH>xG</TH>
-              <TH>xA</TH>
-              <TH>ICT</TH>
+              {isGKP && <><TH>Saves</TH><TH>xGC</TH><TH>CS</TH></>}
+              {hasAttack && <><TH>Goals</TH><TH>Assists</TH></>}
+              {(isDEF || isMID) && <TH>CS</TH>}
+              {hasAttack && <><TH>xG</TH><TH>xA</TH></>}
+              {(isDEF || isMID) && <TH>Defcon</TH>}
+              {isDEF && <TH>CBI</TH>}
+              {isMID && <TH>Recoveries</TH>}
               <TH>Bonus</TH>
               <TH>BPS</TH>
+              <TH>ICT</TH>
             </tr>
           </thead>
           <tbody>
             {[...history].reverse().slice(0, 10).map(h => {
               const xg = parseFloat(h.expected_goals || 0)
               const xa = parseFloat(h.expected_assists || 0)
+              const xgc = parseFloat(h.expected_goals_conceded || 0)
+              const defcon = parseInt(h.defensive_contribution || 0)
+              const cbi = parseInt(h.clearances_blocks_interceptions || 0)
+              const recoveries = parseInt(h.recoveries || 0)
+              const saves = parseInt(h.saves || 0)
+              const hitDefcon = defcon >= defconThreshold
+
               return (
                 <tr key={h.gameweek} style={{ borderBottom: '1px solid #1a1f2e' }}
                   onMouseEnter={e => e.currentTarget.style.background = '#1a1f2e'}
                   onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                  <td style={{ padding: '7px 10px', color: '#aaa' }}>GW{h.gameweek}</td>
-                  <td style={{ padding: '7px 10px', color: h.minutes === 0 ? '#ff4444' : '#fff' }}>{h.minutes}'</td>
-                  <td style={{ padding: '7px 10px', color: ptColor(h.total_points), fontWeight: 'bold' }}>{h.total_points}</td>
-                  <td style={{ padding: '7px 10px', color: h.goals_scored > 0 ? '#ffd700' : '#555' }}>{h.goals_scored || '—'}</td>
-                  <td style={{ padding: '7px 10px', color: h.assists > 0 ? '#7fff00' : '#555' }}>{h.assists || '—'}</td>
-                  <td style={{ padding: '7px 10px', color: h.clean_sheets > 0 ? '#00ff87' : '#555' }}>{h.clean_sheets > 0 ? '✓' : '—'}</td>
-                  <td style={{ padding: '7px 10px', color: xg > 0.3 ? '#00b2ff' : '#aaa' }}>{xg > 0 ? xg.toFixed(2) : '—'}</td>
-                  <td style={{ padding: '7px 10px', color: xa > 0.2 ? '#00b2ff' : '#aaa' }}>{xa > 0 ? xa.toFixed(2) : '—'}</td>
-                  <td style={{ padding: '7px 10px', color: '#aaa' }}>{h.ict_index != null ? parseFloat(h.ict_index).toFixed(1) : '—'}</td>
-                  <td style={{ padding: '7px 10px', color: h.bonus > 0 ? '#00ff87' : '#555' }}>{h.bonus || '—'}</td>
-                  <td style={{ padding: '7px 10px', color: '#aaa' }}>{h.bps ?? '—'}</td>
+                  <TD color="#aaa">GW{h.gameweek}</TD>
+                  <TD color={h.minutes === 0 ? '#ff4444' : '#fff'}>{h.minutes}'</TD>
+                  <TD color={ptColor(h.total_points)} bold>{h.total_points}</TD>
+
+                  {isGKP && <>
+                    <TD color={saves > 0 ? '#00b2ff' : '#555'}>{saves || '—'}</TD>
+                    <TD color={xgc > 1 ? '#ff4444' : '#aaa'}>{xgc > 0 ? xgc.toFixed(2) : '—'}</TD>
+                    <TD color={h.clean_sheets > 0 ? '#00ff87' : '#555'}>{h.clean_sheets > 0 ? '✓' : '—'}</TD>
+                  </>}
+
+                  {hasAttack && <>
+                    <TD color={h.goals_scored > 0 ? '#ffd700' : '#555'}>{h.goals_scored || '—'}</TD>
+                    <TD color={h.assists > 0 ? '#7fff00' : '#555'}>{h.assists || '—'}</TD>
+                  </>}
+
+                  {(isDEF || isMID) && (
+                    <TD color={h.clean_sheets > 0 ? '#00ff87' : '#555'}>{h.clean_sheets > 0 ? '✓' : '—'}</TD>
+                  )}
+
+                  {hasAttack && <>
+                    <TD color={xg > 0.3 ? '#00b2ff' : '#aaa'}>{xg > 0 ? xg.toFixed(2) : '—'}</TD>
+                    <TD color={xa > 0.2 ? '#00b2ff' : '#aaa'}>{xa > 0 ? xa.toFixed(2) : '—'}</TD>
+                  </>}
+
+                  {(isDEF || isMID) && (
+                    <TD color={hitDefcon ? '#00ff87' : defcon > 0 ? '#aaa' : '#555'}>
+                      {defcon > 0 ? `${defcon}${hitDefcon ? ' ✓' : ''}` : '—'}
+                    </TD>
+                  )}
+
+                  {isDEF && <TD color={cbi > 3 ? '#00b2ff' : '#aaa'}>{cbi || '—'}</TD>}
+                  {isMID && <TD color={recoveries > 5 ? '#00b2ff' : '#aaa'}>{recoveries || '—'}</TD>}
+
+                  <TD color={h.bonus > 0 ? '#00ff87' : '#555'}>{h.bonus || '—'}</TD>
+                  <TD>{h.bps ?? '—'}</TD>
+                  <TD>{h.ict_index != null ? parseFloat(h.ict_index).toFixed(1) : '—'}</TD>
                 </tr>
               )
             })}
@@ -123,6 +171,87 @@ function GWTable({ history }) {
         {history.length > 10 && (
           <div style={{ color: '#555', fontSize: '11px', marginTop: '6px', textAlign: 'right' }}>Showing last 10 GWs</div>
         )}
+      </div>
+    </div>
+  )
+}
+
+// ─── Positional Comparison Bar ───────────────────────────────────────────────
+function PositionalComparison({ selected, players }) {
+  if (!selected) return null
+
+  const peers = players.filter(p =>
+    p.position === selected.position &&
+    p.minutes > 180 &&
+    p.xg_per90 != null
+  )
+
+  if (peers.length === 0) return null
+
+  const avg = (field) => peers.reduce((s, p) => s + parseFloat(p[field] || 0), 0) / peers.length
+
+  const avgXG = avg('xg_per90')
+  const avgXA = avg('xa_per90')
+  const avgXGI = avg('xgi_per90')
+
+  const playerXG = parseFloat(selected.xg_per90 || 0)
+  const playerXA = parseFloat(selected.xa_per90 || 0)
+  const playerXGI = parseFloat(selected.xgi_per90 || 0)
+
+  const metrics = [
+    { label: 'xG/90', player: playerXG, avg: avgXG, color: '#00b2ff' },
+    { label: 'xA/90', player: playerXA, avg: avgXA, color: '#7fff00' },
+    { label: 'xGI/90', player: playerXGI, avg: avgXGI, color: '#00ff87' },
+  ]
+
+  const maxVal = Math.max(...metrics.map(m => Math.max(m.player, m.avg))) * 1.2 || 0.1
+
+  return (
+    <div style={{ marginBottom: '20px' }}>
+      <div style={{ color: '#fff', fontSize: '13px', fontWeight: 'bold', marginBottom: '12px' }}>
+        vs {selected.position} Average ({peers.length} players with 180+ mins)
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+        {metrics.map(m => {
+          const playerPct = (m.player / maxVal) * 100
+          const avgPct = (m.avg / maxVal) * 100
+          const isAbove = m.player >= m.avg
+
+          return (
+            <div key={m.label}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                <span style={{ color: '#aaa', fontSize: '12px' }}>{m.label}</span>
+                <span style={{ fontSize: '12px' }}>
+                  <span style={{ color: m.color, fontWeight: 'bold' }}>{m.player.toFixed(3)}</span>
+                  <span style={{ color: '#555' }}> vs avg </span>
+                  <span style={{ color: '#aaa' }}>{m.avg.toFixed(3)}</span>
+                  <span style={{ color: isAbove ? '#00ff87' : '#ff4444', marginLeft: '6px', fontWeight: 'bold' }}>
+                    {isAbove ? '▲' : '▼'} {Math.abs(m.player - m.avg).toFixed(3)}
+                  </span>
+                </span>
+              </div>
+              <div style={{ position: 'relative', height: '20px', background: '#0e1117', borderRadius: '4px', overflow: 'hidden' }}>
+                {/* Avg marker */}
+                <div style={{
+                  position: 'absolute', left: `${avgPct}%`, top: 0, bottom: 0,
+                  width: '2px', background: '#555', zIndex: 2
+                }} />
+                {/* Player bar */}
+                <div style={{
+                  position: 'absolute', left: 0, top: '3px', bottom: '3px',
+                  width: `${playerPct}%`,
+                  background: m.color,
+                  borderRadius: '3px',
+                  opacity: 0.85,
+                  transition: 'width 0.3s ease'
+                }} />
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '2px' }}>
+                <span style={{ color: '#555', fontSize: '10px' }}>│ avg</span>
+              </div>
+            </div>
+          )
+        })}
       </div>
     </div>
   )
@@ -156,7 +285,6 @@ function XGPanel({ players, selectedPlayer, onSelectPlayer }) {
     } catch { setCompareHistory([]) }
   }
 
-  // Build scatter data — all players as context, selected highlighted
   const filtered = players
     .filter(p => position === 'All' || p.position === position)
     .filter(p => p.xg_per90 != null && p.goals_scored != null && p.minutes > 180)
@@ -168,10 +296,17 @@ function XGPanel({ players, selectedPlayer, onSelectPlayer }) {
 
   const maxVal = Math.max(...filtered.map(p => Math.max(p.xg_p90, p.goals_p90)), 0.5) + 0.2
 
-  // Split into selected, compare, and others
   const bgDots = filtered.filter(p => p.id !== selected?.id && p.id !== compare?.id)
   const selectedDot = filtered.find(p => p.id === selected?.id)
   const compareDot = filtered.find(p => p.id === compare?.id)
+
+  const dotColor = (dot) => {
+    if (!dot) return '#fff'
+    const diff = dot.goals_p90 - dot.xg_p90
+    if (diff >= 0.08) return '#00ff87'
+    if (diff <= -0.08) return '#ff8800'
+    return '#ffffff'
+  }
 
   const scatterData = {
     datasets: [
@@ -185,25 +320,14 @@ function XGPanel({ players, selectedPlayer, onSelectPlayer }) {
       ...(selectedDot ? [{
         label: selected.web_name,
         data: [{ x: selectedDot.xg_p90, y: selectedDot.goals_p90, player: selectedDot }],
-        backgroundColor: (() => {
-          const diff = selectedDot.goals_p90 - selectedDot.xg_p90
-          if (diff >= 0.08) return '#00ff87'
-          if (diff <= -0.08) return '#ff8800'
-          return '#ffffff'
-        })(),
+        backgroundColor: dotColor(selectedDot),
         pointRadius: 10,
         pointHoverRadius: 13,
-        pointStyle: 'circle',
       }] : []),
       ...(compareDot ? [{
         label: compare.web_name,
         data: [{ x: compareDot.xg_p90, y: compareDot.goals_p90, player: compareDot }],
-        backgroundColor: (() => {
-          const diff = compareDot.goals_p90 - compareDot.xg_p90
-          if (diff >= 0.08) return '#00ff87'
-          if (diff <= -0.08) return '#ff8800'
-          return '#ffffff'
-        })(),
+        backgroundColor: dotColor(compareDot),
         pointRadius: 10,
         pointHoverRadius: 13,
       }] : []),
@@ -221,9 +345,7 @@ function XGPanel({ players, selectedPlayer, onSelectPlayer }) {
   }
 
   const scatterOptions = {
-    responsive: true,
-    maintainAspectRatio: false,
-    animation: false,
+    responsive: true, maintainAspectRatio: false, animation: false,
     onClick: (event, elements) => {
       if (!elements.length) return
       const el = elements[0]
@@ -262,18 +384,14 @@ function XGPanel({ players, selectedPlayer, onSelectPlayer }) {
     }
   }
 
-  // Season xG totals from history
   const seasonXG = history.reduce((s, h) => s + parseFloat(h.expected_goals || 0), 0)
   const seasonXA = history.reduce((s, h) => s + parseFloat(h.expected_assists || 0), 0)
   const actualGoals = history.reduce((s, h) => s + (h.goals_scored || 0), 0)
   const xgDiff = (actualGoals - seasonXG).toFixed(2)
-
-  // Per-90 diff for insight tag (matches what graph shows)
   const per90Diff = selectedDot ? (selectedDot.goals_p90 - selectedDot.xg_p90) : 0
 
   return (
     <div>
-      {/* Position filter + search */}
       <div style={{ display: 'flex', gap: '12px', marginBottom: '20px', flexWrap: 'wrap', alignItems: 'center' }}>
         <PlayerSearch players={players} onSelect={onSelectPlayer} placeholder="Search player to highlight..." />
         <div style={{ display: 'flex', gap: '6px' }}>
@@ -287,22 +405,21 @@ function XGPanel({ players, selectedPlayer, onSelectPlayer }) {
             }}>{pos}</button>
           ))}
         </div>
-        <span style={{ color: '#555', fontSize: '12px' }}>{filtered.length} players · click any dot to select</span>
+        <span style={{ color: '#555', fontSize: '12px' }}>{filtered.length} players (180+ mins) · click any dot</span>
       </div>
 
-      {/* Scatter */}
       <div style={{ height: '420px', marginBottom: '12px' }}>
         <Scatter ref={chartRef} data={scatterData} options={scatterOptions} />
       </div>
 
       <div style={{ display: 'flex', gap: '16px', justifyContent: 'center', marginBottom: '24px' }}>
-        <span style={{ fontSize: '12px', color: '#00ff87' }}>▲ Above line = overperforming xG</span>
-        <span style={{ fontSize: '12px', color: '#ff8800' }}>▼ Below line = due a return</span>
+        <span style={{ fontSize: '12px', color: '#00ff87' }}>● Green = overperforming xG</span>
+        <span style={{ fontSize: '12px', color: '#fff' }}>● White = in line with xG</span>
+        <span style={{ fontSize: '12px', color: '#ff8800' }}>● Orange = due a return</span>
       </div>
 
-      {/* Selected player detail */}
       {selected && (
-        <div style={{ background: '#0e1117', borderRadius: '12px', padding: '20px', border: `1px solid ${POS_COLORS[selected.position] || '#00ff87'}`, marginBottom: '16px' }}>
+        <div style={{ background: '#0e1117', borderRadius: '12px', padding: '20px', border: `1px solid ${POS_COLORS[selected.position] || '#00ff87'}` }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '16px', flexWrap: 'wrap' }}>
             {selected.code && (
               <img src={`https://resources.premierleague.com/premierleague/photos/players/110x140/p${selected.code}.png`}
@@ -350,7 +467,6 @@ function XGPanel({ players, selectedPlayer, onSelectPlayer }) {
             </div>
           )}
 
-          {/* Compare */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px', flexWrap: 'wrap' }}>
             <span style={{ color: '#aaa', fontSize: '13px' }}>Compare with:</span>
             <PlayerSearch players={players} onSelect={selectCompare} placeholder="Search player..." excludeId={selected.id} />
@@ -364,11 +480,8 @@ function XGPanel({ players, selectedPlayer, onSelectPlayer }) {
             )}
           </div>
 
-          {loading ? (
-            <p style={{ color: '#aaa', fontSize: '13px' }}>Loading history...</p>
-          ) : (
-            <GWTable history={history} />
-          )}
+          {/* Positional comparison bar replaces the redundant table */}
+          <PositionalComparison selected={selected} players={players} />
         </div>
       )}
     </div>
@@ -529,7 +642,7 @@ function FormTimeline({ players, selectedPlayer, onSelectPlayer }) {
             </div>
           )}
 
-          <GWTable history={history} />
+          <GWTable history={history} position={selected.position} />
         </div>
       )}
     </div>
