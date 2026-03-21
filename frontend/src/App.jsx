@@ -16,6 +16,10 @@ export default function App() {
   const [syncMsg, setSyncMsg] = useState('')
   const [analyticsPlayer, setAnalyticsPlayer] = useState(null)
 
+  // Shared team ID state across Transfers, Captain, Chips
+  const [sharedTeamId, setSharedTeamId] = useState('')
+  const [sharedSquadData, setSharedSquadData] = useState(null)
+
   async function handleSync() {
     setSyncing(true)
     setSyncMsg('')
@@ -94,11 +98,11 @@ export default function App() {
 
       <div style={{ padding: '24px' }}>
         {page === 'players'       && <Players onAnalytics={goToAnalytics} />}
-        {page === 'transfers'     && <Transfers />}
-        {page === 'captain'       && <Captain />}
+        {page === 'transfers'     && <Transfers sharedTeamId={sharedTeamId} setSharedTeamId={setSharedTeamId} sharedSquadData={sharedSquadData} setSharedSquadData={setSharedSquadData} />}
+        {page === 'captain'       && <Captain sharedTeamId={sharedTeamId} setSharedTeamId={setSharedTeamId} sharedSquadData={sharedSquadData} setSharedSquadData={setSharedSquadData} />}
         {page === 'differentials' && <Differentials />}
         {page === 'pricechanges'  && <PriceChanges />}
-        {page === 'chips'         && <ChipAdvisor />}
+        {page === 'chips'         && <ChipAdvisor sharedTeamId={sharedTeamId} setSharedTeamId={setSharedTeamId} sharedSquadData={sharedSquadData} setSharedSquadData={setSharedSquadData} />}
         {page === 'analytics'     && <Analytics initialPlayer={analyticsPlayer} />}
       </div>
     </div>
