@@ -56,13 +56,15 @@ export default function App() {
           <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.85)', lineHeight: '1', fontWeight: 'bold' }}>by SilverCityIndigo</span>
         </div>
 
-        <button onClick={() => setPage('players')}        style={navBtn(page === 'players')}>      👤 Players</button>
-        <button onClick={() => setPage('transfers')}      style={navBtn(page === 'transfers')}>    🔄 Transfers</button>
-        <button onClick={() => setPage('captain')}        style={navBtn(page === 'captain')}>      ⚡ Captain</button>
-        <button onClick={() => setPage('chips')}          style={navBtn(page === 'chips')}>        🃏 Chips</button>
-        <button onClick={() => setPage('differentials')}  style={navBtn(page === 'differentials')}>🔍 Scout</button>
-        <button onClick={() => setPage('pricechanges')}   style={navBtn(page === 'pricechanges')}> 💰 Prices</button>
-        <button onClick={() => setPage('analytics')}      style={navBtn(page === 'analytics')}>    📊 Analytics</button>
+        <div style={{ display: 'flex', gap: '8px', flex: 1, justifyContent: 'center', flexWrap: 'wrap' }}>
+          <button onClick={() => setPage('players')}        style={navBtn(page === 'players')}>      👤 Players</button>
+          <button onClick={() => setPage('transfers')}      style={navBtn(page === 'transfers')}>    🔄 Transfers</button>
+          <button onClick={() => setPage('captain')}        style={navBtn(page === 'captain')}>      ⚡ Captain</button>
+          <button onClick={() => setPage('chips')}          style={navBtn(page === 'chips')}>        🃏 Chips</button>
+          <button onClick={() => setPage('differentials')}  style={navBtn(page === 'differentials')}>🔍 Scout</button>
+          <button onClick={() => setPage('pricechanges')}   style={navBtn(page === 'pricechanges')}> 💰 Prices</button>
+          <button onClick={() => setPage('analytics')}      style={navBtn(page === 'analytics')}>    📊 Analytics</button>
+        </div>
 
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '12px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
