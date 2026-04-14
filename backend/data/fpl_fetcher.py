@@ -1,25 +1,21 @@
 """
-FPL Data Fetcher
-Pulls data from the official Fantasy Premier League API.
-Endpoints used:
-  - /bootstrap-static/  → all players, teams, gameweeks
-  - /element-summary/{id}/ → per-player gameweek history
-  - /fixtures/ → full fixture list with FDR
-
-xG data sourced from Understat.com via understatapi package.
-Season key for 2025/26 = "2025" (Understat uses the start year).
+FPL Data Fetcher — Postgres/Supabase version
 """
 
+import os
 import requests
-import sqlite3
+import psycopg2
 from datetime import datetime
 from rapidfuzz import process, fuzz
 from understatapi import UnderstatClient
 
 BASE_URL = "https://fantasy.premierleague.com/api"
 UNDERSTAT_SEASON = "2025"
-
 HEADERS = {"User-Agent": "Mozilla/5.0"}
+
+
+def get_conn():
+    return psycopg2.connect(os.environ["DATABASE_URL"])
 
 
 def get_bootstrap():
@@ -40,170 +36,37 @@ def get_player_history(player_id: int):
     return r.json()
 
 
-def init_db(db_path: str = "fpl.db"):
-    conn = sqlite3.connect(db_path)
-    c = conn.cursor()
-
-    c.executescript("""
-        CREATE TABLE IF NOT EXISTS teams (
-            id INTEGER PRIMARY KEY,
-            name TEXT,
-            short_name TEXT,
-            strength INTEGER,
-            strength_attack_home INTEGER,
-            strength_attack_away INTEGER,
-            strength_defence_home INTEGER,
-            strength_defence_away INTEGER
-        );
-
-        CREATE TABLE IF NOT EXISTS players (
-            id INTEGER PRIMARY KEY,
-            code INTEGER,
-            web_name TEXT,
-            full_name TEXT,
-            team_id INTEGER,
-            position TEXT,
-            price REAL,
-            total_points INTEGER,
-            points_per_game REAL,
-            form REAL,
-            selected_by_percent REAL,
-            minutes INTEGER,
-            goals_scored INTEGER,
-            assists INTEGER,
-            clean_sheets INTEGER,
-            bonus INTEGER,
-            ict_index REAL,
-            news TEXT,
-            chance_of_playing_next_round INTEGER,
-            status TEXT,
-            transfers_in_event INTEGER,
-            transfers_out_event INTEGER,
-            xg_per90 REAL DEFAULT 0.0,
-            xa_per90 REAL DEFAULT 0.0,
-            xgi_per90 REAL DEFAULT 0.0,
-            updated_at TEXT
-        );
-
-        CREATE TABLE IF NOT EXISTS gameweeks (
-            id INTEGER PRIMARY KEY,
-            name TEXT,
-            deadline_time TEXT,
-            finished INTEGER,
-            is_current INTEGER,
-            is_next INTEGER,
-            average_entry_score INTEGER,
-            highest_score INTEGER
-        );
-
-        CREATE TABLE IF NOT EXISTS player_gameweek_history (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            player_id INTEGER,
-            gameweek INTEGER,
-            total_points INTEGER,
-            minutes INTEGER,
-            goals_scored INTEGER,
-            assists INTEGER,
-            clean_sheets INTEGER,
-            bonus INTEGER,
-            bps INTEGER,
-            ict_index REAL,
-            value REAL,
-            selected INTEGER,
-            transfers_in INTEGER,
-            transfers_out INTEGER,
-            expected_goals REAL,
-            expected_assists REAL,
-            expected_goal_involvements REAL,
-            expected_goals_conceded REAL,
-            saves INTEGER,
-            defensive_contribution INTEGER,
-            clearances_blocks_interceptions INTEGER,
-            recoveries INTEGER,
-            tackles INTEGER,
-            influence REAL,
-            creativity REAL,
-            threat REAL,
-            yellow_cards INTEGER,
-            red_cards INTEGER,
-            own_goals INTEGER,
-            penalties_saved INTEGER,
-            penalties_missed INTEGER,
-            UNIQUE(player_id, gameweek)
-        );
-
-        CREATE TABLE IF NOT EXISTS fixtures (
-            id INTEGER PRIMARY KEY,
-            gameweek INTEGER,
-            team_h INTEGER,
-            team_a INTEGER,
-            team_h_difficulty INTEGER,
-            team_a_difficulty INTEGER,
-            team_h_score INTEGER,
-            team_a_score INTEGER,
-            finished INTEGER,
-            kickoff_time TEXT
-        );
-    """)
-
-    # Safely add columns to players table
-    for col, typ in [
-        ("xg_per90", "REAL DEFAULT 0.0"),
-        ("xa_per90", "REAL DEFAULT 0.0"),
-        ("xgi_per90", "REAL DEFAULT 0.0"),
-    ]:
-        try:
-            c.execute(f"ALTER TABLE players ADD COLUMN {col} {typ}")
-        except Exception:
-            pass
-
-    # Safely add all new columns to history table
-    new_history_cols = [
-        ("expected_goals", "REAL"),
-        ("expected_assists", "REAL"),
-        ("expected_goal_involvements", "REAL"),
-        ("expected_goals_conceded", "REAL"),
-        ("saves", "INTEGER"),
-        ("defensive_contribution", "INTEGER"),
-        ("clearances_blocks_interceptions", "INTEGER"),
-        ("recoveries", "INTEGER"),
-        ("tackles", "INTEGER"),
-        ("influence", "REAL"),
-        ("creativity", "REAL"),
-        ("threat", "REAL"),
-        ("yellow_cards", "INTEGER"),
-        ("red_cards", "INTEGER"),
-        ("own_goals", "INTEGER"),
-        ("penalties_saved", "INTEGER"),
-        ("penalties_missed", "INTEGER"),
-    ]
-    for col, typ in new_history_cols:
-        try:
-            c.execute(f"ALTER TABLE player_gameweek_history ADD COLUMN {col} {typ}")
-            print(f"✅ Added column {col} to player_gameweek_history")
-        except Exception:
-            pass
-
-    conn.commit()
-    conn.close()
-    print("✅ Database schema ready.")
+def init_db():
+    # Schema is created directly in Supabase — this is a no-op now.
+    print("✅ Database schema managed via Supabase.")
 
 
 POSITION_MAP = {1: "GKP", 2: "DEF", 3: "MID", 4: "FWD"}
 
 
-def sync_bootstrap(db_path: str = "fpl.db"):
+def sync_bootstrap():
     print("📡 Fetching bootstrap data...")
     data = get_bootstrap()
-    conn = sqlite3.connect(db_path)
+    conn = get_conn()
     c = conn.cursor()
     now = datetime.utcnow().isoformat()
 
     for t in data["teams"]:
-        c.execute("INSERT OR REPLACE INTO teams VALUES (?,?,?,?,?,?,?,?)",
-            (t["id"], t["name"], t["short_name"], t["strength"],
-             t["strength_attack_home"], t["strength_attack_away"],
-             t["strength_defence_home"], t["strength_defence_away"]))
+        c.execute("""
+            INSERT INTO teams (id, name, short_name, strength,
+                strength_attack_home, strength_attack_away,
+                strength_defence_home, strength_defence_away)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+            ON CONFLICT(id) DO UPDATE SET
+                name=EXCLUDED.name, short_name=EXCLUDED.short_name,
+                strength=EXCLUDED.strength,
+                strength_attack_home=EXCLUDED.strength_attack_home,
+                strength_attack_away=EXCLUDED.strength_attack_away,
+                strength_defence_home=EXCLUDED.strength_defence_home,
+                strength_defence_away=EXCLUDED.strength_defence_away
+        """, (t["id"], t["name"], t["short_name"], t["strength"],
+              t["strength_attack_home"], t["strength_attack_away"],
+              t["strength_defence_home"], t["strength_defence_away"]))
 
     for p in data["elements"]:
         c.execute("""
@@ -214,24 +77,24 @@ def sync_bootstrap(db_path: str = "fpl.db"):
                 ict_index, news, chance_of_playing_next_round, status,
                 transfers_in_event, transfers_out_event,
                 xg_per90, xa_per90, xgi_per90, updated_at
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0.0,0.0,0.0,?)
+            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,0.0,0.0,0.0,%s)
             ON CONFLICT(id) DO UPDATE SET
-                code=excluded.code, web_name=excluded.web_name,
-                full_name=excluded.full_name, team_id=excluded.team_id,
-                position=excluded.position, price=excluded.price,
-                total_points=excluded.total_points,
-                points_per_game=excluded.points_per_game,
-                form=excluded.form,
-                selected_by_percent=excluded.selected_by_percent,
-                minutes=excluded.minutes, goals_scored=excluded.goals_scored,
-                assists=excluded.assists, clean_sheets=excluded.clean_sheets,
-                bonus=excluded.bonus, ict_index=excluded.ict_index,
-                news=excluded.news,
-                chance_of_playing_next_round=excluded.chance_of_playing_next_round,
-                status=excluded.status,
-                transfers_in_event=excluded.transfers_in_event,
-                transfers_out_event=excluded.transfers_out_event,
-                updated_at=excluded.updated_at
+                code=EXCLUDED.code, web_name=EXCLUDED.web_name,
+                full_name=EXCLUDED.full_name, team_id=EXCLUDED.team_id,
+                position=EXCLUDED.position, price=EXCLUDED.price,
+                total_points=EXCLUDED.total_points,
+                points_per_game=EXCLUDED.points_per_game,
+                form=EXCLUDED.form,
+                selected_by_percent=EXCLUDED.selected_by_percent,
+                minutes=EXCLUDED.minutes, goals_scored=EXCLUDED.goals_scored,
+                assists=EXCLUDED.assists, clean_sheets=EXCLUDED.clean_sheets,
+                bonus=EXCLUDED.bonus, ict_index=EXCLUDED.ict_index,
+                news=EXCLUDED.news,
+                chance_of_playing_next_round=EXCLUDED.chance_of_playing_next_round,
+                status=EXCLUDED.status,
+                transfers_in_event=EXCLUDED.transfers_in_event,
+                transfers_out_event=EXCLUDED.transfers_out_event,
+                updated_at=EXCLUDED.updated_at
         """, (
             p["id"], p.get("code"),
             p["web_name"],
@@ -252,7 +115,17 @@ def sync_bootstrap(db_path: str = "fpl.db"):
         ))
 
     for gw in data["events"]:
-        c.execute("INSERT OR REPLACE INTO gameweeks VALUES (?,?,?,?,?,?,?,?)", (
+        c.execute("""
+            INSERT INTO gameweeks (id, name, deadline_time, finished,
+                is_current, is_next, average_entry_score, highest_score)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+            ON CONFLICT(id) DO UPDATE SET
+                name=EXCLUDED.name, deadline_time=EXCLUDED.deadline_time,
+                finished=EXCLUDED.finished, is_current=EXCLUDED.is_current,
+                is_next=EXCLUDED.is_next,
+                average_entry_score=EXCLUDED.average_entry_score,
+                highest_score=EXCLUDED.highest_score
+        """, (
             gw["id"], gw["name"], gw["deadline_time"],
             int(gw["finished"]), int(gw["is_current"]), int(gw["is_next"]),
             gw.get("average_entry_score"), gw.get("highest_score")
@@ -263,13 +136,24 @@ def sync_bootstrap(db_path: str = "fpl.db"):
     print(f"✅ Synced {len(data['elements'])} players, {len(data['teams'])} teams.")
 
 
-def sync_fixtures(db_path: str = "fpl.db"):
+def sync_fixtures():
     print("📡 Fetching fixtures...")
     fixtures = get_fixtures()
-    conn = sqlite3.connect(db_path)
+    conn = get_conn()
     c = conn.cursor()
     for f in fixtures:
-        c.execute("INSERT OR REPLACE INTO fixtures VALUES (?,?,?,?,?,?,?,?,?,?)", (
+        c.execute("""
+            INSERT INTO fixtures (id, gameweek, team_h, team_a,
+                team_h_difficulty, team_a_difficulty,
+                team_h_score, team_a_score, finished, kickoff_time)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            ON CONFLICT(id) DO UPDATE SET
+                gameweek=EXCLUDED.gameweek,
+                team_h_score=EXCLUDED.team_h_score,
+                team_a_score=EXCLUDED.team_a_score,
+                finished=EXCLUDED.finished,
+                kickoff_time=EXCLUDED.kickoff_time
+        """, (
             f["id"], f.get("event"), f["team_h"], f["team_a"],
             f["team_h_difficulty"], f["team_a_difficulty"],
             f.get("team_h_score"), f.get("team_a_score"),
@@ -280,9 +164,8 @@ def sync_fixtures(db_path: str = "fpl.db"):
     print(f"✅ Synced {len(fixtures)} fixtures.")
 
 
-def sync_player_histories(db_path: str = "fpl.db", limit: int = None):
-    """Sync per-player GW history with all available fields from FPL API."""
-    conn = sqlite3.connect(db_path)
+def sync_player_histories(limit: int = None):
+    conn = get_conn()
     c = conn.cursor()
     c.execute("SELECT id FROM players ORDER BY total_points DESC")
     player_ids = [row[0] for row in c.fetchall()]
@@ -296,11 +179,11 @@ def sync_player_histories(db_path: str = "fpl.db", limit: int = None):
     for i, pid in enumerate(player_ids):
         try:
             data = get_player_history(pid)
-            conn = sqlite3.connect(db_path)
+            conn = get_conn()
             c = conn.cursor()
             for gw in data["history"]:
                 c.execute("""
-                    INSERT OR REPLACE INTO player_gameweek_history (
+                    INSERT INTO player_gameweek_history (
                         player_id, gameweek, total_points, minutes,
                         goals_scored, assists, clean_sheets, bonus, bps,
                         ict_index, value, selected, transfers_in, transfers_out,
@@ -310,22 +193,35 @@ def sync_player_histories(db_path: str = "fpl.db", limit: int = None):
                         influence, creativity, threat,
                         yellow_cards, red_cards, own_goals,
                         penalties_saved, penalties_missed
-                    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    ON CONFLICT(player_id, gameweek) DO UPDATE SET
+                        total_points=EXCLUDED.total_points,
+                        minutes=EXCLUDED.minutes,
+                        goals_scored=EXCLUDED.goals_scored,
+                        assists=EXCLUDED.assists,
+                        clean_sheets=EXCLUDED.clean_sheets,
+                        bonus=EXCLUDED.bonus, bps=EXCLUDED.bps,
+                        ict_index=EXCLUDED.ict_index,
+                        value=EXCLUDED.value, selected=EXCLUDED.selected,
+                        transfers_in=EXCLUDED.transfers_in,
+                        transfers_out=EXCLUDED.transfers_out,
+                        expected_goals=EXCLUDED.expected_goals,
+                        expected_assists=EXCLUDED.expected_assists,
+                        expected_goal_involvements=EXCLUDED.expected_goal_involvements,
+                        expected_goals_conceded=EXCLUDED.expected_goals_conceded,
+                        saves=EXCLUDED.saves,
+                        influence=EXCLUDED.influence,
+                        creativity=EXCLUDED.creativity,
+                        threat=EXCLUDED.threat,
+                        yellow_cards=EXCLUDED.yellow_cards,
+                        red_cards=EXCLUDED.red_cards
                 """, (
-                    pid,
-                    gw["round"],
-                    gw["total_points"],
-                    gw["minutes"],
-                    gw["goals_scored"],
-                    gw["assists"],
-                    gw["clean_sheets"],
-                    gw["bonus"],
-                    gw["bps"],
+                    pid, gw["round"], gw["total_points"], gw["minutes"],
+                    gw["goals_scored"], gw["assists"], gw["clean_sheets"],
+                    gw["bonus"], gw["bps"],
                     float(gw["ict_index"] or 0),
-                    gw["value"] / 10.0,
-                    gw["selected"],
-                    gw["transfers_in"],
-                    gw["transfers_out"],
+                    gw["value"] / 10.0, gw["selected"],
+                    gw["transfers_in"], gw["transfers_out"],
                     float(gw.get("expected_goals") or 0),
                     float(gw.get("expected_assists") or 0),
                     float(gw.get("expected_goal_involvements") or 0),
@@ -354,8 +250,6 @@ def sync_player_histories(db_path: str = "fpl.db", limit: int = None):
     print("✅ Player histories synced.")
 
 
-# ── xG INTEGRATION ────────────────────────────────────────────────────────────
-
 def fetch_understat_xg() -> dict:
     print(f"📡 Fetching Understat xG data for EPL {UNDERSTAT_SEASON}...")
     xg_data = {}
@@ -368,8 +262,8 @@ def fetch_understat_xg() -> dict:
                 if minutes < 90:
                     continue
                 nineties = minutes / 90.0
-                xg  = float(p.get("xG", 0) or 0)
-                xa  = float(p.get("xA", 0) or 0)
+                xg = float(p.get("xG", 0) or 0)
+                xa = float(p.get("xA", 0) or 0)
                 xg_data[p["player_name"]] = {
                     "xg_per90":  round(xg / nineties, 3),
                     "xa_per90":  round(xa / nineties, 3),
@@ -411,8 +305,8 @@ def fuzzy_match_xg(fpl_players: list, xg_data: dict) -> dict:
     return matched
 
 
-def sync_xg(db_path: str = "fpl.db"):
-    conn = sqlite3.connect(db_path)
+def sync_xg():
+    conn = get_conn()
     c = conn.cursor()
     c.execute("SELECT id, full_name, web_name FROM players")
     fpl_players = c.fetchall()
@@ -425,24 +319,23 @@ def sync_xg(db_path: str = "fpl.db"):
     if not matched:
         print("⚠️  No matches — skipping.")
         return
-    conn = sqlite3.connect(db_path)
+    conn = get_conn()
     c = conn.cursor()
     for fpl_id, stats in matched.items():
-        c.execute("UPDATE players SET xg_per90=?, xa_per90=?, xgi_per90=? WHERE id=?",
-            (stats["xg_per90"], stats["xa_per90"], stats["xgi_per90"], fpl_id))
+        c.execute("""
+            UPDATE players SET xg_per90=%s, xa_per90=%s, xgi_per90=%s WHERE id=%s
+        """, (stats["xg_per90"], stats["xa_per90"], stats["xgi_per90"], fpl_id))
     conn.commit()
     conn.close()
     print(f"✅ xG data stored for {len(matched)} players.")
 
 
-# ── SYNC ENTRY POINTS ─────────────────────────────────────────────────────────
-
-def full_sync(db_path: str = "fpl.db"):
-    init_db(db_path)
-    sync_bootstrap(db_path)
-    sync_fixtures(db_path)
-    sync_player_histories(db_path)
-    sync_xg(db_path)
+def full_sync():
+    init_db()
+    sync_bootstrap()
+    sync_fixtures()
+    sync_player_histories()
+    sync_xg()
     print("🎉 Full sync complete!")
 
 
