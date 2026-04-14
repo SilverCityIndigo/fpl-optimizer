@@ -8,7 +8,7 @@ import ChipAdvisor from './pages/ChipAdvisor'
 import Analytics from './pages/Analytics'
 import './index.css'
 
-const API = import.meta.env.VITE_API_URL || 'https://fpl-optimizer-production.up.railway.app'
+const API = import.meta.env.VITE_API_URL || 'https://fpl-lab-backend.onrender.com'
 
 export default function App() {
   const [page, setPage] = useState('players')

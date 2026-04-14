@@ -1,7 +1,7 @@
 import axios from 'axios'
 
 const api = axios.create({
-  baseURL: 'https://fpl-optimizer-production.up.railway.app'
+  baseURL: 'https://fpl-lab-backend.onrender.com'
 })
 
 export const getPlayers = (position = null) => {
