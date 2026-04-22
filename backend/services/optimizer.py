@@ -50,7 +50,7 @@ def _get_opponent_attack_factor(c, opponent_team_id: int, is_opponent_home: bool
             WHERE team_a = %s AND finished = 1 AND team_a_score IS NOT NULL
         """, (opponent_team_id,))
     row = c.fetchone()
-    avg_goals = row[0] if row and row[0] is not None else 1.3
+    avg_goals = float(row[0]) if row and row[0] is not None else 1.3
     factor = 0.5 + (avg_goals / 1.3) * 0.5
     return round(min(1.5, max(0.5, factor)), 3)
 
@@ -72,11 +72,11 @@ def _get_player_stats(c, player_id: int, lookback: int = 6) -> dict:
         }
 
     games = len(rows)
-    avg_minutes = sum(r[0] for r in rows) / games
-    avg_bonus = sum(r[1] for r in rows) / games
-    avg_bps = sum(r[2] for r in rows) / games
-    defcon_rate_def = sum(1 for r in rows if r[2] >= BPS_DEFCON_THRESHOLD["DEF"]) / games
-    defcon_rate_mid = sum(1 for r in rows if r[2] >= BPS_DEFCON_THRESHOLD["MID"]) / games
+    avg_minutes = sum(float(r[0]) for r in rows) / games
+    avg_bonus = sum(float(r[1]) for r in rows) / games
+    avg_bps = sum(float(r[2]) for r in rows) / games
+    defcon_rate_def = sum(1 for r in rows if float(r[2]) >= BPS_DEFCON_THRESHOLD["DEF"]) / games
+    defcon_rate_mid = sum(1 for r in rows if float(r[2]) >= BPS_DEFCON_THRESHOLD["MID"]) / games
 
     return {
         "avg_minutes": avg_minutes, "avg_bonus": avg_bonus, "avg_bps": avg_bps,
@@ -107,7 +107,16 @@ def get_players_for_optimization(db_path: str = None, gw_lookback: int = 6):
                "total_points", "points_per_game", "form", "minutes",
                "status", "chance_of_playing", "team_name",
                "xg_per90", "xa_per90", "xgi_per90"]
-    players = [dict(zip(columns, row)) for row in c.fetchall()]
+
+    raw = c.fetchall()
+    players = []
+    for row in raw:
+        p = dict(zip(columns, row))
+        for field in ["price", "total_points", "points_per_game", "form",
+                      "minutes", "xg_per90", "xa_per90", "xgi_per90"]:
+            if p.get(field) is not None:
+                p[field] = float(p[field])
+        players.append(p)
 
     c.execute("""
         SELECT f.team_h, f.team_a, f.team_h_difficulty, f.team_a_difficulty
@@ -147,7 +156,7 @@ def get_players_for_optimization(db_path: str = None, gw_lookback: int = 6):
 
         if history:
             weights = [0.9 ** i for i in range(len(history))]
-            weighted_pts = sum(h[0] * w for h, w in zip(history, weights))
+            weighted_pts = sum(float(h[0]) * w for h, w in zip(history, weights))
             decay_score = weighted_pts / sum(weights)
         else:
             decay_score = float(p["points_per_game"] or 2.0)
