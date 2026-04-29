@@ -923,6 +923,7 @@ function FixtureSwing() {
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(true)
   const [selectedTeam, setSelectedTeam] = useState('ARS')
+  const [teamSearch, setTeamSearch] = useState('')
 
   useEffect(() => {
     setLoading(true)
@@ -950,6 +951,10 @@ function FixtureSwing() {
   }).sort((a, b) => a.avg - b.avg)
 
   const selected = teamStats.find(t => t.team === selectedTeam) || teamStats[0]
+  const teamOptions = teamStats.map(t => t.team)
+  const teamMatches = teamSearch
+    ? teamOptions.filter(t => t.toLowerCase().includes(teamSearch.toLowerCase())).slice(0, 8)
+    : []
 
   const colorForDiff = (d) => {
     if (d <= 2) return 'rgba(0,255,135,0.85)'
@@ -964,7 +969,8 @@ function FixtureSwing() {
       label: `Avg FDR (next ${nextGws} GW)`,
       data: teamStats.map(t => Number(t.avg.toFixed(2))),
       backgroundColor: teamStats.map(t => colorForDiff(t.avg)),
-      borderWidth: 0,
+      borderWidth: teamStats.map(t => (t.team === selectedTeam ? 2 : 0)),
+      borderColor: teamStats.map(t => (t.team === selectedTeam ? '#ffffff' : 'transparent')),
     }]
   }
 
@@ -1019,6 +1025,56 @@ function FixtureSwing() {
             Next {n} GW
           </button>
         ))}
+      </div>
+
+      <div style={{ position: 'relative', maxWidth: '320px', marginBottom: '14px' }}>
+        <input
+          placeholder="Search team (e.g. ARS, MCI)..."
+          value={teamSearch}
+          onChange={e => setTeamSearch(e.target.value)}
+          style={{
+            width: '100%',
+            padding: '9px 12px',
+            borderRadius: '8px',
+            border: '1px solid var(--border)',
+            background: 'var(--bg)',
+            color: 'var(--text)',
+            fontSize: '13px'
+          }}
+        />
+        {teamSearch && teamMatches.length > 0 && (
+          <div style={{
+            position: 'absolute',
+            zIndex: 100,
+            top: '38px',
+            width: '100%',
+            background: 'var(--bg-card)',
+            border: '1px solid var(--border)',
+            borderRadius: '8px',
+            overflow: 'hidden'
+          }}>
+            {teamMatches.map(team => (
+              <button
+                key={team}
+                onClick={() => { setSelectedTeam(team); setTeamSearch('') }}
+                style={{
+                  display: 'block',
+                  width: '100%',
+                  textAlign: 'left',
+                  padding: '8px 10px',
+                  border: 'none',
+                  borderBottom: '1px solid var(--border)',
+                  background: 'transparent',
+                  color: 'var(--text)',
+                  cursor: 'pointer',
+                  fontSize: '12px'
+                }}
+              >
+                {team}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {loading ? (
