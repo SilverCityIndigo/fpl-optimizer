@@ -15,20 +15,19 @@
   color-scheme: dark;
 }
 
-/* “Light” toggle = navy day theme: softer than pure white, fits FPL Lab
-   without competing with the default charcoal dark mode. */
+/* Alternate theme: soft sky blue — airy but not harsh white; default :root stays charcoal. */
 html[data-theme="light"] {
-  --bg:               #141f2d;
-  --bg-card:          #1c2a3d;
-  --border:           #2f4158;
-  --hover:            #24344a;
-  --text:             #e8eef4;
-  --text-secondary:   #9fb0c6;
-  --text-muted:       #6a7d94;
-  --grid:             #253547;
-  --shadow:           rgba(0, 0, 0, 0.35);
-  --accent-shadow:    rgba(0, 255, 135, 0.12);
-  color-scheme: dark;
+  --bg:               #d8ecfb;
+  --bg-card:          #eef6fd;
+  --border:           #9bc5e3;
+  --hover:            #c8e0f5;
+  --text:             #0c2744;
+  --text-secondary:   #3a5f7a;
+  --text-muted:       #6b8aa3;
+  --grid:             #b8d9f0;
+  --shadow:           rgba(12, 39, 68, 0.08);
+  --accent-shadow:    rgba(0, 200, 120, 0.22);
+  color-scheme: light;
 }
 
 html, body {

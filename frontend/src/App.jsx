@@ -62,8 +62,8 @@ export default function App() {
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '12px' }}>
           <button
             onClick={toggleTheme}
-            title={theme === 'dark' ? 'Switch to navy (softer) theme' : 'Switch to charcoal dark theme'}
-            aria-label={theme === 'dark' ? 'Switch to navy theme' : 'Switch to dark theme'}
+            title={theme === 'dark' ? 'Switch to sky blue theme' : 'Switch to charcoal dark theme'}
+            aria-label={theme === 'dark' ? 'Switch to sky theme' : 'Switch to dark theme'}
             style={{
               background: 'transparent',
               border: '1px solid var(--border)',
@@ -83,7 +83,7 @@ export default function App() {
           >
             {theme === 'dark' ? '☀️' : '🌙'}
             <span style={{ fontSize: '12px', fontWeight: 500 }}>
-              {theme === 'dark' ? 'Navy' : 'Dark'}
+              {theme === 'dark' ? 'Sky' : 'Dark'}
             </span>
           </button>
 
