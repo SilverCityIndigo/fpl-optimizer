@@ -653,6 +653,188 @@ function FormTimeline({ players, selectedPlayer, onSelectPlayer }) {
   )
 }
 
+// ─── Price vs Output Map ─────────────────────────────────────────────────────
+function ValueMap({ players, selectedPlayer, onSelectPlayer }) {
+  const [position, setPosition] = useState('All')
+  const pool = players
+    .filter(p => position === 'All' || p.position === position)
+    .filter(p => (p.minutes || 0) >= 180)
+    .map(p => ({
+      ...p,
+      priceNum: parseFloat(p.price || 0),
+      ppgNum: parseFloat(p.points_per_game || 0),
+      valueNum: parseFloat(p.total_points || 0) / Math.max(0.1, parseFloat(p.price || 0)),
+      ownNum: parseFloat(p.selected_by_percent || 0),
+    }))
+
+  const maxPrice = Math.max(...pool.map(p => p.priceNum), 8) + 0.5
+  const maxPpg = Math.max(...pool.map(p => p.ppgNum), 6) + 0.6
+  const markerColor = (pos) => POS_COLORS[pos] || '#fff'
+
+  const scatterData = {
+    datasets: [{
+      label: 'Players',
+      data: pool.map(p => ({ x: p.priceNum, y: p.ppgNum, player: p })),
+      pointRadius: (ctx) => {
+        const p = ctx.raw?.player
+        if (!p) return 4
+        return Math.max(4, Math.min(12, p.valueNum * 1.25))
+      },
+      pointHoverRadius: 10,
+      backgroundColor: pool.map(p => markerColor(p.position)),
+      borderColor: 'rgba(0,0,0,0.25)',
+      borderWidth: 1,
+    }]
+  }
+
+  const scatterOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    animation: false,
+    onClick: (_, elements) => {
+      if (!elements.length) return
+      const point = scatterData.datasets[elements[0].datasetIndex].data[elements[0].index]
+      if (point?.player) onSelectPlayer(point.player)
+    },
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        backgroundColor: 'var(--bg)',
+        borderColor: 'var(--border)',
+        borderWidth: 1,
+        callbacks: {
+          label: (ctx) => {
+            const p = ctx.raw?.player
+            if (!p) return ''
+            return [
+              `${p.web_name} (${p.team_name})`,
+              `£${p.priceNum.toFixed(1)}m · ${p.ppgNum.toFixed(1)} PPG`,
+              `Value: ${p.valueNum.toFixed(2)} pts/£m · Ownership: ${p.ownNum.toFixed(1)}%`,
+            ]
+          }
+        }
+      }
+    },
+    scales: {
+      x: {
+        title: { display: true, text: 'Price (£m)', color: 'var(--text-secondary)' },
+        min: 3.5, max: maxPrice, ticks: { color: 'var(--text-secondary)' }, grid: { color: 'var(--grid)' },
+      },
+      y: {
+        title: { display: true, text: 'Points per Game', color: 'var(--text-secondary)' },
+        min: 0, max: maxPpg, ticks: { color: 'var(--text-secondary)' }, grid: { color: 'var(--grid)' },
+      }
+    }
+  }
+
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '14px' }}>
+        {POSITIONS.map(pos => (
+          <button key={pos} onClick={() => setPosition(pos)} style={{
+            padding: '5px 11px', borderRadius: '6px', cursor: 'pointer',
+            border: `1px solid ${position === pos ? '#00ff87' : 'var(--border)'}`,
+            background: position === pos ? 'rgba(0,255,135,0.12)' : 'transparent',
+            color: position === pos ? '#00ff87' : 'var(--text-secondary)',
+            fontSize: '12px'
+          }}>{pos}</button>
+        ))}
+      </div>
+
+      <div style={{ height: '420px' }}>
+        <Scatter data={scatterData} options={scatterOptions} />
+      </div>
+
+      <p style={{ marginTop: '10px', color: 'var(--text-muted)', fontSize: '12px' }}>
+        Bubble size reflects value (total points per £m). Click a player to inspect them in other tabs.
+      </p>
+      {selectedPlayer && (
+        <p style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>
+          Selected: <span style={{ color: '#00ff87', fontWeight: 'bold' }}>{selectedPlayer.web_name}</span>
+        </p>
+      )}
+    </div>
+  )
+}
+
+// ─── Differential Radar ──────────────────────────────────────────────────────
+function DifferentialRadar({ players }) {
+  const [position, setPosition] = useState('All')
+  const candidates = players
+    .filter(p => position === 'All' || p.position === position)
+    .filter(p => (p.minutes || 0) >= 270)
+    .map(p => ({
+      ...p,
+      ownNum: parseFloat(p.selected_by_percent || 0),
+      formNum: parseFloat(p.form || 0),
+      ppgNum: parseFloat(p.points_per_game || 0),
+    }))
+    .filter(p => p.ownNum <= 40)
+    .sort((a, b) => (b.formNum * 0.7 + b.ppgNum * 0.3) - (a.formNum * 0.7 + a.ppgNum * 0.3))
+    .slice(0, 15)
+
+  const barData = {
+    labels: candidates.map(p => p.web_name),
+    datasets: [
+      {
+        label: 'Form',
+        data: candidates.map(p => p.formNum),
+        backgroundColor: 'rgba(0, 255, 135, 0.72)',
+        borderColor: '#00ff87',
+        borderWidth: 1,
+      },
+      {
+        label: 'Ownership %',
+        data: candidates.map(p => p.ownNum),
+        backgroundColor: 'rgba(0, 178, 255, 0.55)',
+        borderColor: '#00b2ff',
+        borderWidth: 1,
+      }
+    ]
+  }
+
+  const barOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: { labels: { color: 'var(--text-secondary)' } },
+      tooltip: {
+        backgroundColor: 'var(--bg)',
+        borderColor: 'var(--border)',
+        borderWidth: 1,
+      }
+    },
+    scales: {
+      x: { ticks: { color: 'var(--text-secondary)' }, grid: { color: 'var(--grid)' } },
+      y: { ticks: { color: 'var(--text-secondary)' }, grid: { color: 'var(--grid)' } }
+    }
+  }
+
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '12px' }}>
+        {POSITIONS.map(pos => (
+          <button key={pos} onClick={() => setPosition(pos)} style={{
+            padding: '5px 11px', borderRadius: '6px', cursor: 'pointer',
+            border: `1px solid ${position === pos ? '#00ff87' : 'var(--border)'}`,
+            background: position === pos ? 'rgba(0,255,135,0.12)' : 'transparent',
+            color: position === pos ? '#00ff87' : 'var(--text-secondary)',
+            fontSize: '12px'
+          }}>{pos}</button>
+        ))}
+      </div>
+
+      <div style={{ height: '390px' }}>
+        <Bar data={barData} options={barOptions} />
+      </div>
+
+      <p style={{ marginTop: '10px', color: 'var(--text-muted)', fontSize: '12px' }}>
+        Idea: target high-form, lower-owned players before ownership catches up.
+      </p>
+    </div>
+  )
+}
+
 // ─── Main Analytics Page ─────────────────────────────────────────────────────
 export default function Analytics({ initialPlayer = null }) {
   const [players, setPlayers] = useState([])
@@ -676,6 +858,8 @@ export default function Analytics({ initialPlayer = null }) {
   const tabs = [
     { key: 'xg',       label: '⚽ xG vs Goals',  desc: 'See where any player sits vs their peers — click to highlight' },
     { key: 'timeline', label: '📈 Form Timeline', desc: 'GW-by-GW scoring history for any player' },
+    { key: 'value',    label: '💸 Price vs Output', desc: 'Spot value picks by viewing price, PPG, and value bubbles together' },
+    { key: 'radar',    label: '🛰️ Differential Radar', desc: 'Track high-form players whose ownership is still relatively low' },
   ]
 
   return (
@@ -720,6 +904,12 @@ export default function Analytics({ initialPlayer = null }) {
           )}
           {tab === 'timeline' && (
             <FormTimeline players={players} selectedPlayer={selectedPlayer} onSelectPlayer={setSelectedPlayer} />
+          )}
+          {tab === 'value' && (
+            <ValueMap players={players} selectedPlayer={selectedPlayer} onSelectPlayer={setSelectedPlayer} />
+          )}
+          {tab === 'radar' && (
+            <DifferentialRadar players={players} />
           )}
         </div>
       )}
