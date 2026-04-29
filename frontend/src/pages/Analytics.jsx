@@ -5,7 +5,7 @@ import {
   Legend, CategoryScale, Filler, BarElement
 } from 'chart.js'
 import { Scatter, Line, Bar } from 'react-chartjs-2'
-import { getPlayers, getPlayerHistory } from '../api'
+import { getPlayers, getPlayerHistory, getFdrTable } from '../api'
 
 ChartJS.register(LinearScale, PointElement, LineElement, ChartTooltip, Legend, CategoryScale, Filler, BarElement)
 
@@ -917,6 +917,148 @@ function DifferentialRadar({ players, selectedPlayer, onSelectPlayer }) {
   )
 }
 
+// ─── Fixture Swing Meter ─────────────────────────────────────────────────────
+function FixtureSwing() {
+  const [nextGws, setNextGws] = useState(5)
+  const [rows, setRows] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [selectedTeam, setSelectedTeam] = useState('ARS')
+
+  useEffect(() => {
+    setLoading(true)
+    getFdrTable(nextGws)
+      .then(res => setRows(Array.isArray(res.data) ? res.data : []))
+      .catch(() => setRows([]))
+      .finally(() => setLoading(false))
+  }, [nextGws])
+
+  const byTeam = rows.reduce((acc, r) => {
+    if (!acc[r.short_name]) acc[r.short_name] = []
+    acc[r.short_name].push(r)
+    return acc
+  }, {})
+
+  const teamStats = Object.entries(byTeam).map(([team, fixtures]) => {
+    const sorted = [...fixtures].sort((a, b) => a.gameweek - b.gameweek)
+    const avg = sorted.reduce((s, f) => s + Number(f.difficulty || 3), 0) / Math.max(1, sorted.length)
+    const first = sorted.slice(0, Math.ceil(sorted.length / 2))
+    const second = sorted.slice(Math.ceil(sorted.length / 2))
+    const firstAvg = first.reduce((s, f) => s + Number(f.difficulty || 3), 0) / Math.max(1, first.length)
+    const secondAvg = second.reduce((s, f) => s + Number(f.difficulty || 3), 0) / Math.max(1, second.length)
+    const swing = firstAvg - secondAvg // positive = improving run
+    return { team, fixtures: sorted, avg, swing }
+  }).sort((a, b) => a.avg - b.avg)
+
+  const selected = teamStats.find(t => t.team === selectedTeam) || teamStats[0]
+
+  const colorForDiff = (d) => {
+    if (d <= 2) return 'rgba(0,255,135,0.85)'
+    if (d <= 3) return 'rgba(255,215,0,0.8)'
+    if (d <= 4) return 'rgba(255,136,0,0.8)'
+    return 'rgba(255,68,68,0.85)'
+  }
+
+  const barData = {
+    labels: teamStats.map(t => t.team),
+    datasets: [{
+      label: `Avg FDR (next ${nextGws} GW)`,
+      data: teamStats.map(t => Number(t.avg.toFixed(2))),
+      backgroundColor: teamStats.map(t => colorForDiff(t.avg)),
+      borderWidth: 0,
+    }]
+  }
+
+  const barOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    indexAxis: 'y',
+    onClick: (_, elements) => {
+      if (!elements.length) return
+      const idx = elements[0].index
+      const t = teamStats[idx]
+      if (t) setSelectedTeam(t.team)
+    },
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        backgroundColor: 'var(--bg)',
+        borderColor: 'var(--border)',
+        borderWidth: 1,
+        callbacks: {
+          label: (ctx) => `${ctx.raw} avg difficulty`,
+        }
+      }
+    },
+    scales: {
+      x: {
+        min: 1, max: 5,
+        ticks: { color: 'var(--text)' },
+        grid: { color: 'var(--grid)' },
+        title: { display: true, text: 'Fixture Difficulty (1 easy → 5 hard)', color: 'var(--text)' },
+      },
+      y: {
+        ticks: { color: 'var(--text-secondary)' },
+        grid: { color: 'var(--grid)' }
+      }
+    }
+  }
+
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '14px' }}>
+        {[3, 5, 8].map(n => (
+          <button key={n} onClick={() => setNextGws(n)} style={{
+            padding: '6px 10px',
+            borderRadius: '6px',
+            border: `1px solid ${nextGws === n ? '#00ff87' : 'var(--border)'}`,
+            background: nextGws === n ? 'rgba(0,255,135,0.12)' : 'transparent',
+            color: nextGws === n ? '#00ff87' : 'var(--text-secondary)',
+            cursor: 'pointer',
+            fontSize: '12px'
+          }}>
+            Next {n} GW
+          </button>
+        ))}
+      </div>
+
+      {loading ? (
+        <p style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>Loading fixture matrix...</p>
+      ) : (
+        <>
+          <div style={{ height: '460px', marginBottom: '16px' }}>
+            <Bar data={barData} options={barOptions} />
+          </div>
+
+          {selected && (
+            <div style={{ background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: '10px', padding: '12px 14px' }}>
+              <div style={{ color: 'var(--text)', fontWeight: 'bold', marginBottom: '10px' }}>
+                {selected.team} fixture run ({nextGws} GW) · avg {selected.avg.toFixed(2)} · swing {selected.swing >= 0 ? '▲' : '▼'} {Math.abs(selected.swing).toFixed(2)}
+              </div>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                {selected.fixtures.map(f => (
+                  <div key={`${selected.team}-${f.gameweek}-${f.venue}`} style={{
+                    background: colorForDiff(Number(f.difficulty || 3)),
+                    color: '#0b0b0b',
+                    padding: '6px 8px',
+                    borderRadius: '6px',
+                    fontWeight: 'bold',
+                    fontSize: '12px',
+                    minWidth: '68px',
+                    textAlign: 'center'
+                  }}>
+                    GW{f.gameweek} {f.venue}
+                    <div style={{ fontSize: '11px' }}>{f.difficulty}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
 // ─── Main Analytics Page ─────────────────────────────────────────────────────
 export default function Analytics({ initialPlayer = null }) {
   const [players, setPlayers] = useState([])
@@ -942,6 +1084,7 @@ export default function Analytics({ initialPlayer = null }) {
     { key: 'timeline', label: '📈 Form Timeline', desc: 'GW-by-GW scoring history for any player' },
     { key: 'value',    label: '💸 Price vs Output', desc: 'Spot value picks by viewing price, PPG, and value bubbles together' },
     { key: 'radar',    label: '🛰️ Differential Radar', desc: 'Track high-form players whose ownership is still relatively low' },
+    { key: 'fixtures', label: '🗓️ Fixture Swing', desc: 'See easiest upcoming fixture runs and identify improving schedules' },
   ]
 
   return (
@@ -992,6 +1135,9 @@ export default function Analytics({ initialPlayer = null }) {
           )}
           {tab === 'radar' && (
             <DifferentialRadar players={players} selectedPlayer={selectedPlayer} onSelectPlayer={setSelectedPlayer} />
+          )}
+          {tab === 'fixtures' && (
+            <FixtureSwing />
           )}
         </div>
       )}

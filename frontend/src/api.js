@@ -12,6 +12,7 @@ export const getPlayers = (position = null) => {
 export const getValuePicks = () => api.get('/api/players/value')
 export const getDifferentials = () => api.get('/api/players/differentials')
 export const getCurrentGameweek = () => api.get('/api/gameweek/current')
+export const getFdrTable = (nextGws = 5) => api.get('/api/gameweek/fdr-table', { params: { next_gws: nextGws } })
 
 export const getTeamSquad = (teamId) => api.get(`/api/players/team/${teamId}`)
 export const getPlayerHistory = (playerId) => api.get(`/api/players/${playerId}/history`)
