@@ -36,6 +36,13 @@ def get_player_history(player_id: int):
     return r.json()
 
 
+def get_event_live(gw: int):
+    """Bulk per-player stats for a single gameweek — one HTTP call covers everyone."""
+    r = requests.get(f"{BASE_URL}/event/{gw}/live/", headers=HEADERS, timeout=15)
+    r.raise_for_status()
+    return r.json()
+
+
 def init_db():
     # Schema is created directly in Supabase — this is a no-op now.
     print("✅ Database schema managed via Supabase.")
@@ -164,6 +171,38 @@ def sync_fixtures():
     print(f"✅ Synced {len(fixtures)} fixtures.")
 
 
+def _aggregate_history_by_round(history: list) -> list:
+    """Collapse multiple history rows for the same gameweek (double GWs) into one
+    row with summed stats. FPL returns one entry per fixture, so DGW players have
+    two rows with the same `round`; without aggregation our UPSERT would silently
+    drop the first fixture's stats."""
+    by_round: dict[int, dict] = {}
+    sum_int = ["total_points", "minutes", "goals_scored", "assists",
+               "clean_sheets", "bonus", "bps", "saves", "yellow_cards",
+               "red_cards", "own_goals", "penalties_saved", "penalties_missed",
+               "transfers_in", "transfers_out",
+               "defensive_contribution", "clearances_blocks_interceptions",
+               "recoveries", "tackles"]
+    sum_float = ["expected_goals", "expected_assists",
+                 "expected_goal_involvements", "expected_goals_conceded",
+                 "ict_index", "influence", "creativity", "threat"]
+    last_wins = ["value", "selected"]
+
+    for row in history:
+        rnd = row["round"]
+        if rnd not in by_round:
+            by_round[rnd] = {**row}
+            continue
+        agg = by_round[rnd]
+        for k in sum_int:
+            agg[k] = (int(agg.get(k) or 0)) + (int(row.get(k) or 0))
+        for k in sum_float:
+            agg[k] = float(agg.get(k) or 0) + float(row.get(k) or 0)
+        for k in last_wins:
+            agg[k] = row.get(k, agg.get(k))
+    return list(by_round.values())
+
+
 def sync_player_histories(limit: int = None):
     conn = get_conn()
     c = conn.cursor()
@@ -181,7 +220,7 @@ def sync_player_histories(limit: int = None):
             data = get_player_history(pid)
             conn = get_conn()
             c = conn.cursor()
-            for gw in data["history"]:
+            for gw in _aggregate_history_by_round(data["history"]):
                 c.execute("""
                     INSERT INTO player_gameweek_history (
                         player_id, gameweek, total_points, minutes,
@@ -330,11 +369,176 @@ def sync_xg():
     print(f"✅ xG data stored for {len(matched)} players.")
 
 
+def sync_event_live(gw: int) -> int:
+    """Sync per-player stats for a single gameweek using FPL's bulk live endpoint.
+    One HTTP call covers every player, so this is the fast path for keeping the
+    most recent gameweek(s) up to date. Returns rows touched.
+
+    Columns that aren't returned by /event/{gw}/live (value, selected,
+    transfers_in, transfers_out) are filled with sensible defaults on INSERT and
+    left untouched on UPDATE — they get correct values from the next
+    sync_player_histories run."""
+    print(f"📡 Fetching live stats for GW{gw}...")
+    try:
+        data = get_event_live(gw)
+    except Exception as e:
+        print(f"  ⚠️  GW{gw} live fetch failed: {e}")
+        return 0
+
+    elements = data.get("elements", [])
+    if not elements:
+        return 0
+
+    conn = get_conn()
+    c = conn.cursor()
+
+    c.execute("""
+        SELECT DISTINCT p.id, p.price
+        FROM players p
+        JOIN fixtures f ON (f.team_h = p.team_id OR f.team_a = p.team_id)
+        WHERE f.gameweek = %s
+    """, (gw,))
+    eligible: dict[int, float] = {row[0]: float(row[1] or 0) for row in c.fetchall()}
+
+    touched = 0
+    for el in elements:
+        pid = el.get("id")
+        if pid is None or pid not in eligible:
+            continue
+        s = el.get("stats") or {}
+        if (s.get("minutes") or 0) == 0 and (s.get("total_points") or 0) == 0 \
+           and (s.get("bps") or 0) == 0:
+            continue
+
+        c.execute("""
+            INSERT INTO player_gameweek_history (
+                player_id, gameweek, total_points, minutes,
+                goals_scored, assists, clean_sheets, bonus, bps,
+                ict_index, value, selected, transfers_in, transfers_out,
+                expected_goals, expected_assists, expected_goal_involvements,
+                expected_goals_conceded, saves, defensive_contribution,
+                clearances_blocks_interceptions, recoveries, tackles,
+                influence, creativity, threat,
+                yellow_cards, red_cards, own_goals,
+                penalties_saved, penalties_missed
+            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            ON CONFLICT(player_id, gameweek) DO UPDATE SET
+                total_points=EXCLUDED.total_points,
+                minutes=EXCLUDED.minutes,
+                goals_scored=EXCLUDED.goals_scored,
+                assists=EXCLUDED.assists,
+                clean_sheets=EXCLUDED.clean_sheets,
+                bonus=EXCLUDED.bonus, bps=EXCLUDED.bps,
+                ict_index=EXCLUDED.ict_index,
+                expected_goals=EXCLUDED.expected_goals,
+                expected_assists=EXCLUDED.expected_assists,
+                expected_goal_involvements=EXCLUDED.expected_goal_involvements,
+                expected_goals_conceded=EXCLUDED.expected_goals_conceded,
+                saves=EXCLUDED.saves,
+                defensive_contribution=EXCLUDED.defensive_contribution,
+                clearances_blocks_interceptions=EXCLUDED.clearances_blocks_interceptions,
+                recoveries=EXCLUDED.recoveries,
+                tackles=EXCLUDED.tackles,
+                influence=EXCLUDED.influence,
+                creativity=EXCLUDED.creativity,
+                threat=EXCLUDED.threat,
+                yellow_cards=EXCLUDED.yellow_cards,
+                red_cards=EXCLUDED.red_cards,
+                own_goals=EXCLUDED.own_goals,
+                penalties_saved=EXCLUDED.penalties_saved,
+                penalties_missed=EXCLUDED.penalties_missed
+        """, (
+            pid, gw,
+            int(s.get("total_points") or 0), int(s.get("minutes") or 0),
+            int(s.get("goals_scored") or 0), int(s.get("assists") or 0),
+            int(s.get("clean_sheets") or 0), int(s.get("bonus") or 0),
+            int(s.get("bps") or 0),
+            float(s.get("ict_index") or 0),
+            eligible[pid], 0, 0, 0,
+            float(s.get("expected_goals") or 0),
+            float(s.get("expected_assists") or 0),
+            float(s.get("expected_goal_involvements") or 0),
+            float(s.get("expected_goals_conceded") or 0),
+            int(s.get("saves") or 0),
+            int(s.get("defensive_contribution") or 0),
+            int(s.get("clearances_blocks_interceptions") or 0),
+            int(s.get("recoveries") or 0),
+            int(s.get("tackles") or 0),
+            float(s.get("influence") or 0),
+            float(s.get("creativity") or 0),
+            float(s.get("threat") or 0),
+            int(s.get("yellow_cards") or 0),
+            int(s.get("red_cards") or 0),
+            int(s.get("own_goals") or 0),
+            int(s.get("penalties_saved") or 0),
+            int(s.get("penalties_missed") or 0),
+        ))
+        touched += 1
+
+    conn.commit()
+    conn.close()
+    print(f"✅ GW{gw}: synced live stats for {touched} players.")
+    return touched
+
+
+def sync_recent_events(num_recent: int = 3) -> int:
+    """Refresh the most recent gameweeks (current + finished) using the bulk
+    live endpoint. Cheap enough to run on every scheduler tick."""
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("""
+        SELECT id FROM gameweeks
+        WHERE finished = 1 OR is_current = 1
+        ORDER BY id DESC
+        LIMIT %s
+    """, (num_recent,))
+    gw_ids = [row[0] for row in c.fetchall()]
+    conn.close()
+
+    if not gw_ids:
+        print("⚠️  No finished/current gameweeks to sync.")
+        return 0
+
+    total = 0
+    for gw in gw_ids:
+        total += sync_event_live(gw)
+    print(f"✅ sync_recent_events: refreshed {len(gw_ids)} GW(s), {total} player-rows.")
+    return total
+
+
+def cleanup_blank_gameweeks() -> int:
+    """Defensive cleanup: remove any player_gameweek_history row for a GW where
+    the player's team had no fixture (a true blank). FPL's element-summary
+    normally omits these, but this guards against drift if a fixture is moved
+    between gameweeks. Idempotent."""
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("""
+        DELETE FROM player_gameweek_history h
+        USING players p
+        WHERE p.id = h.player_id
+          AND NOT EXISTS (
+              SELECT 1 FROM fixtures f
+              WHERE f.gameweek = h.gameweek
+                AND (f.team_h = p.team_id OR f.team_a = p.team_id)
+          )
+    """)
+    deleted = c.rowcount or 0
+    conn.commit()
+    conn.close()
+    if deleted:
+        print(f"🧹 Removed {deleted} blank-GW history rows.")
+    else:
+        print("🧹 No blank-GW rows to clean.")
+    return deleted
+
+
 def full_sync():
     init_db()
     sync_bootstrap()
     sync_fixtures()
     sync_player_histories()
+    cleanup_blank_gameweeks()
     sync_xg()
     print("🎉 Full sync complete!")
 

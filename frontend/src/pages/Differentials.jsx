@@ -25,7 +25,7 @@ export default function Differentials() {
   return (
     <div>
       <h2 style={{ marginBottom: '8px', color: '#00ff87' }}>🔍 Differential Scout</h2>
-      <p style={{ color: '#aaa', marginBottom: '24px', fontSize: '14px' }}>
+      <p style={{ color: 'var(--text-secondary)', marginBottom: '24px', fontSize: '14px' }}>
         Differentials: underrated, lower-ownership players. Find the edge before anyone else does. 
       </p>
 
@@ -37,7 +37,7 @@ export default function Differentials() {
               padding: '8px 16px', borderRadius: '6px',
               border: '1px solid #00ff87',
               background: position === pos ? '#00ff87' : 'transparent',
-              color: position === pos ? '#000' : '#fff',
+              color: position === pos ? '#000' : 'var(--text)',
               cursor: 'pointer', fontWeight: position === pos ? 'bold' : 'normal'
             }}>
             {pos}
@@ -46,9 +46,9 @@ export default function Differentials() {
       </div>
 
       {loading ? (
-        <p style={{ color: '#aaa' }}>Scouting differentials...</p>
+        <p style={{ color: 'var(--text-secondary)' }}>Scouting differentials...</p>
       ) : filtered.length === 0 ? (
-        <p style={{ color: '#aaa' }}>No differentials found for this position right now.</p>
+        <p style={{ color: 'var(--text-secondary)' }}>No differentials found for this position right now.</p>
       ) : (
         positions.map(pos => {
           const posPlayers = filtered.filter(p => p.position === pos).slice(0, 5)
@@ -67,23 +67,23 @@ export default function Differentials() {
                 <h3 style={{ margin: 0, fontSize: '16px' }}>
                   {pos === 'GKP' ? 'Goalkeepers' : pos === 'DEF' ? 'Defenders' : pos === 'MID' ? 'Midfielders' : 'Forwards'}
                 </h3>
-                <span style={{ color: '#aaa', fontSize: '13px' }}>{posPlayers.length} differential{posPlayers.length !== 1 ? 's' : ''} found</span>
+                <span style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>{posPlayers.length} differential{posPlayers.length !== 1 ? 's' : ''} found</span>
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                 {posPlayers.map((p, i) => (
                   <div key={p.id} style={{
-                    background: '#1a1f2e',
+                    background: 'var(--bg-card)',
                     borderRadius: '10px',
                     padding: '16px',
-                    border: `1px solid ${i === 0 ? posColors[pos] : '#2a2f3e'}`,
+                    border: `1px solid ${i === 0 ? posColors[pos] : 'var(--border)'}`,
                     display: 'flex',
                     gap: '16px',
                     alignItems: 'center',
                     flexWrap: 'wrap'
                   }}>
                     {/* Rank */}
-                    <div style={{ color: i === 0 ? posColors[pos] : '#aaa', fontWeight: 'bold', fontSize: '20px', minWidth: '28px' }}>
+                    <div style={{ color: i === 0 ? posColors[pos] : 'var(--text-secondary)', fontWeight: 'bold', fontSize: '20px', minWidth: '28px' }}>
                       #{i + 1}
                     </div>
 
@@ -100,7 +100,7 @@ export default function Differentials() {
                     {/* Name + why */}
                     <div style={{ flex: 1, minWidth: '180px' }}>
                       <div style={{ fontWeight: 'bold', fontSize: '16px', marginBottom: '2px' }}>{p.web_name}</div>
-                      <div style={{ color: '#aaa', fontSize: '12px', marginBottom: '8px' }}>{p.team_name} · £{p.price}m</div>
+                      <div style={{ color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '8px' }}>{p.team_name} · £{p.price}m</div>
                       <div style={{ color: '#ccc', fontSize: '13px', fontStyle: 'italic' }}>💡 {p.why}</div>
                     </div>
 
@@ -108,21 +108,21 @@ export default function Differentials() {
                     <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                       {[
                         ['Form', p.form, '#ffd700'],
-                        ['PPG', p.points_per_game, '#fff'],
+                        ['PPG', p.points_per_game, 'var(--text)'],
                         ['Owned', `${p.selected_by_percent}%`, '#00d4ff'],
                       ].map(([label, value, color]) => (
-                        <div key={label} style={{ background: '#0e1117', borderRadius: '6px', padding: '6px 10px', textAlign: 'center', minWidth: '55px' }}>
-                          <div style={{ color: '#aaa', fontSize: '10px', marginBottom: '2px' }}>{label}</div>
+                        <div key={label} style={{ background: 'var(--bg)', borderRadius: '6px', padding: '6px 10px', textAlign: 'center', minWidth: '55px' }}>
+                          <div style={{ color: 'var(--text-secondary)', fontSize: '10px', marginBottom: '2px' }}>{label}</div>
                           <div style={{ color, fontWeight: 'bold', fontSize: '14px' }}>{value}</div>
                         </div>
                       ))}
-                      <div style={{ background: '#0e1117', borderRadius: '6px', padding: '6px 10px', textAlign: 'center', minWidth: '90px' }}>
-                        <div style={{ color: '#aaa', fontSize: '10px', marginBottom: '2px' }}>Next Fixture</div>
-                        <div style={{ color: FDR_COLORS[p.fdr] || '#fff', fontWeight: 'bold', fontSize: '12px' }}>{p.fixture}</div>
+                      <div style={{ background: 'var(--bg)', borderRadius: '6px', padding: '6px 10px', textAlign: 'center', minWidth: '90px' }}>
+                        <div style={{ color: 'var(--text-secondary)', fontSize: '10px', marginBottom: '2px' }}>Next Fixture</div>
+                        <div style={{ color: FDR_COLORS[p.fdr] || 'var(--text)', fontWeight: 'bold', fontSize: '12px' }}>{p.fixture}</div>
                       </div>
-                      <div style={{ background: '#0e1117', borderRadius: '6px', padding: '6px 10px', textAlign: 'center', minWidth: '70px' }}>
-                        <div style={{ color: '#aaa', fontSize: '10px', marginBottom: '2px' }}>FDR</div>
-                        <div style={{ color: FDR_COLORS[p.fdr] || '#fff', fontWeight: 'bold', fontSize: '14px' }}>{p.fdr} · {p.fdr_label}</div>
+                      <div style={{ background: 'var(--bg)', borderRadius: '6px', padding: '6px 10px', textAlign: 'center', minWidth: '70px' }}>
+                        <div style={{ color: 'var(--text-secondary)', fontSize: '10px', marginBottom: '2px' }}>FDR</div>
+                        <div style={{ color: FDR_COLORS[p.fdr] || 'var(--text)', fontWeight: 'bold', fontSize: '14px' }}>{p.fdr} · {p.fdr_label}</div>
                       </div>
                     </div>
                   </div>

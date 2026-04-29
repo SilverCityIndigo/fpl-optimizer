@@ -15,16 +15,16 @@ const POS_COLORS = { GKP: '#f5a623', DEF: '#00b2ff', MID: '#00ff87', FWD: '#ff44
 function ptColor(pts) {
   if (pts >= 6) return '#00ff87'
   if (pts >= 4) return '#ffd700'
-  return '#fff'
+  return 'var(--text)'
 }
 
 const TH = ({ children }) => (
-  <th style={{ padding: '8px 10px', textAlign: 'left', color: '#fff', fontWeight: 'bold', fontSize: '12px', borderBottom: '1px solid #2a2f3e' }}>
+  <th style={{ padding: '8px 10px', textAlign: 'left', color: 'var(--text)', fontWeight: 'bold', fontSize: '12px', borderBottom: '1px solid var(--border)' }}>
     {children}
   </th>
 )
 
-const TD = ({ children, color = '#aaa', bold = false }) => (
+const TD = ({ children, color = 'var(--text-secondary)', bold = false }) => (
   <td style={{ padding: '7px 10px', color, fontWeight: bold ? 'bold' : 'normal' }}>{children}</td>
 )
 
@@ -44,21 +44,21 @@ function PlayerSearch({ players, onSelect, placeholder = 'Search player...', exc
         onChange={e => setSearch(e.target.value)}
         style={{
           width: '100%', padding: '10px 14px', borderRadius: '8px',
-          border: '1px solid #2a2f3e', background: '#0e1117',
-          color: '#fff', fontSize: '14px', outline: 'none', boxSizing: 'border-box'
+          border: '1px solid var(--border)', background: 'var(--bg)',
+          color: 'var(--text)', fontSize: '14px', outline: 'none', boxSizing: 'border-box'
         }}
       />
       {search && filtered.length > 0 && (
         <div style={{
-          position: 'absolute', zIndex: 200, background: '#1a1f2e',
-          border: '1px solid #2a2f3e', borderRadius: '8px', marginTop: '4px',
+          position: 'absolute', zIndex: 200, background: 'var(--bg-card)',
+          border: '1px solid var(--border)', borderRadius: '8px', marginTop: '4px',
           maxHeight: '240px', overflowY: 'auto', width: '100%'
         }}>
           {filtered.map(p => (
             <div key={p.id}
               onClick={() => { onSelect(p); setSearch('') }}
-              style={{ padding: '10px 14px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px', borderBottom: '1px solid #0e1117' }}
-              onMouseEnter={e => e.currentTarget.style.background = '#0e1117'}
+              style={{ padding: '10px 14px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px', borderBottom: '1px solid var(--bg)' }}
+              onMouseEnter={e => e.currentTarget.style.background = 'var(--bg)'}
               onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
               {p.code && (
                 <img src={`https://resources.premierleague.com/premierleague/photos/players/110x140/p${p.code}.png`}
@@ -66,8 +66,8 @@ function PlayerSearch({ players, onSelect, placeholder = 'Search player...', exc
                   onError={e => e.target.style.display = 'none'} />
               )}
               <div>
-                <div style={{ fontWeight: 'bold', fontSize: '14px', color: '#fff' }}>{p.web_name}</div>
-                <div style={{ color: '#aaa', fontSize: '11px' }}>{p.team_name} · {p.position} · £{p.price}m</div>
+                <div style={{ fontWeight: 'bold', fontSize: '14px', color: 'var(--text)' }}>{p.web_name}</div>
+                <div style={{ color: 'var(--text-secondary)', fontSize: '11px' }}>{p.team_name} · {p.position} · £{p.price}m</div>
               </div>
             </div>
           ))}
@@ -92,7 +92,7 @@ function GWTable({ history, position }) {
 
   return (
     <div>
-      <div style={{ color: '#fff', fontSize: '13px', fontWeight: 'bold', marginBottom: '10px' }}>Gameweek Breakdown</div>
+      <div style={{ color: 'var(--text)', fontSize: '13px', fontWeight: 'bold', marginBottom: '10px' }}>Gameweek Breakdown</div>
       <div style={{ overflowX: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
           <thead>
@@ -124,43 +124,43 @@ function GWTable({ history, position }) {
               const hitDefcon = defcon >= defconThreshold
 
               return (
-                <tr key={h.gameweek} style={{ borderBottom: '1px solid #1a1f2e' }}
-                  onMouseEnter={e => e.currentTarget.style.background = '#1a1f2e'}
+                <tr key={h.gameweek} style={{ borderBottom: '1px solid var(--bg-card)' }}
+                  onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-card)'}
                   onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
                   <TD color="#aaa">GW{h.gameweek}</TD>
-                  <TD color={h.minutes === 0 ? '#ff4444' : '#fff'}>{h.minutes}'</TD>
+                  <TD color={h.minutes === 0 ? '#ff4444' : 'var(--text)'}>{h.minutes}'</TD>
                   <TD color={ptColor(h.total_points)} bold>{h.total_points}</TD>
 
                   {isGKP && <>
-                    <TD color={saves > 0 ? '#00b2ff' : '#555'}>{saves || '—'}</TD>
-                    <TD color={xgc > 1 ? '#ff4444' : '#aaa'}>{xgc > 0 ? xgc.toFixed(2) : '—'}</TD>
-                    <TD color={h.clean_sheets > 0 ? '#00ff87' : '#555'}>{h.clean_sheets > 0 ? '✓' : '—'}</TD>
+                    <TD color={saves > 0 ? '#00b2ff' : 'var(--text-muted)'}>{saves || '—'}</TD>
+                    <TD color={xgc > 1 ? '#ff4444' : 'var(--text-secondary)'}>{xgc > 0 ? xgc.toFixed(2) : '—'}</TD>
+                    <TD color={h.clean_sheets > 0 ? '#00ff87' : 'var(--text-muted)'}>{h.clean_sheets > 0 ? '✓' : '—'}</TD>
                   </>}
 
                   {hasAttack && <>
-                    <TD color={h.goals_scored > 0 ? '#ffd700' : '#555'}>{h.goals_scored || '—'}</TD>
-                    <TD color={h.assists > 0 ? '#7fff00' : '#555'}>{h.assists || '—'}</TD>
+                    <TD color={h.goals_scored > 0 ? '#ffd700' : 'var(--text-muted)'}>{h.goals_scored || '—'}</TD>
+                    <TD color={h.assists > 0 ? '#7fff00' : 'var(--text-muted)'}>{h.assists || '—'}</TD>
                   </>}
 
                   {(isDEF || isMID) && (
-                    <TD color={h.clean_sheets > 0 ? '#00ff87' : '#555'}>{h.clean_sheets > 0 ? '✓' : '—'}</TD>
+                    <TD color={h.clean_sheets > 0 ? '#00ff87' : 'var(--text-muted)'}>{h.clean_sheets > 0 ? '✓' : '—'}</TD>
                   )}
 
                   {hasAttack && <>
-                    <TD color={xg > 0.3 ? '#00b2ff' : '#aaa'}>{xg > 0 ? xg.toFixed(2) : '—'}</TD>
-                    <TD color={xa > 0.2 ? '#00b2ff' : '#aaa'}>{xa > 0 ? xa.toFixed(2) : '—'}</TD>
+                    <TD color={xg > 0.3 ? '#00b2ff' : 'var(--text-secondary)'}>{xg > 0 ? xg.toFixed(2) : '—'}</TD>
+                    <TD color={xa > 0.2 ? '#00b2ff' : 'var(--text-secondary)'}>{xa > 0 ? xa.toFixed(2) : '—'}</TD>
                   </>}
 
                   {(isDEF || isMID) && (
-                    <TD color={hitDefcon ? '#00ff87' : defcon > 0 ? '#aaa' : '#555'}>
+                    <TD color={hitDefcon ? '#00ff87' : defcon > 0 ? 'var(--text-secondary)' : 'var(--text-muted)'}>
                       {defcon > 0 ? `${defcon}${hitDefcon ? ' ✓' : ''}` : '—'}
                     </TD>
                   )}
 
-                  {isDEF && <TD color={cbi > 3 ? '#00b2ff' : '#aaa'}>{cbi || '—'}</TD>}
-                  {isMID && <TD color={recoveries > 5 ? '#00b2ff' : '#aaa'}>{recoveries || '—'}</TD>}
+                  {isDEF && <TD color={cbi > 3 ? '#00b2ff' : 'var(--text-secondary)'}>{cbi || '—'}</TD>}
+                  {isMID && <TD color={recoveries > 5 ? '#00b2ff' : 'var(--text-secondary)'}>{recoveries || '—'}</TD>}
 
-                  <TD color={h.bonus > 0 ? '#00ff87' : '#555'}>{h.bonus || '—'}</TD>
+                  <TD color={h.bonus > 0 ? '#00ff87' : 'var(--text-muted)'}>{h.bonus || '—'}</TD>
                   <TD>{h.bps ?? '—'}</TD>
                   <TD>{h.ict_index != null ? parseFloat(h.ict_index).toFixed(1) : '—'}</TD>
                 </tr>
@@ -169,7 +169,7 @@ function GWTable({ history, position }) {
           </tbody>
         </table>
         {history.length > 10 && (
-          <div style={{ color: '#555', fontSize: '11px', marginTop: '6px', textAlign: 'right' }}>Showing last 10 GWs</div>
+          <div style={{ color: 'var(--text-muted)', fontSize: '11px', marginTop: '6px', textAlign: 'right' }}>Showing last 10 GWs</div>
         )}
       </div>
     </div>
@@ -208,7 +208,7 @@ function PositionalComparison({ selected, players }) {
 
   return (
     <div style={{ marginBottom: '20px' }}>
-      <div style={{ color: '#fff', fontSize: '13px', fontWeight: 'bold', marginBottom: '12px' }}>
+      <div style={{ color: 'var(--text)', fontSize: '13px', fontWeight: 'bold', marginBottom: '12px' }}>
         vs {selected.position} Average ({peers.length} players with 180+ mins)
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
@@ -220,21 +220,21 @@ function PositionalComparison({ selected, players }) {
           return (
             <div key={m.label}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-                <span style={{ color: '#aaa', fontSize: '12px' }}>{m.label}</span>
+                <span style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>{m.label}</span>
                 <span style={{ fontSize: '12px' }}>
                   <span style={{ color: m.color, fontWeight: 'bold' }}>{m.player.toFixed(3)}</span>
-                  <span style={{ color: '#555' }}> vs avg </span>
-                  <span style={{ color: '#aaa' }}>{m.avg.toFixed(3)}</span>
+                  <span style={{ color: 'var(--text-muted)' }}> vs avg </span>
+                  <span style={{ color: 'var(--text-secondary)' }}>{m.avg.toFixed(3)}</span>
                   <span style={{ color: isAbove ? '#00ff87' : '#ff4444', marginLeft: '6px', fontWeight: 'bold' }}>
                     {isAbove ? '▲' : '▼'} {Math.abs(m.player - m.avg).toFixed(3)}
                   </span>
                 </span>
               </div>
-              <div style={{ position: 'relative', height: '20px', background: '#0e1117', borderRadius: '4px', overflow: 'hidden' }}>
+              <div style={{ position: 'relative', height: '20px', background: 'var(--bg)', borderRadius: '4px', overflow: 'hidden' }}>
                 {/* Avg marker */}
                 <div style={{
                   position: 'absolute', left: `${avgPct}%`, top: 0, bottom: 0,
-                  width: '2px', background: '#555', zIndex: 2
+                  width: '2px', background: 'var(--text-muted)', zIndex: 2
                 }} />
                 {/* Player bar */}
                 <div style={{
@@ -247,7 +247,7 @@ function PositionalComparison({ selected, players }) {
                 }} />
               </div>
               <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '2px' }}>
-                <span style={{ color: '#555', fontSize: '10px' }}>│ avg</span>
+                <span style={{ color: 'var(--text-muted)', fontSize: '10px' }}>│ avg</span>
               </div>
             </div>
           )
@@ -301,7 +301,7 @@ function XGPanel({ players, selectedPlayer, onSelectPlayer }) {
   const compareDot = filtered.find(p => p.id === compare?.id)
 
   const dotColor = (dot) => {
-    if (!dot) return '#fff'
+    if (!dot) return 'var(--text)'
     const diff = dot.goals_p90 - dot.xg_p90
     if (diff >= 0.08) return '#00ff87'
     if (diff <= -0.08) return '#ff8800'
@@ -368,18 +368,18 @@ function XGPanel({ players, selectedPlayer, onSelectPlayer }) {
             ]
           }
         },
-        backgroundColor: '#0e1117', borderColor: '#2a2f3e', borderWidth: 1,
-        titleColor: '#fff', bodyColor: '#aaa', padding: 12,
+        backgroundColor: 'var(--bg)', borderColor: 'var(--border)', borderWidth: 1,
+        titleColor: 'var(--text)', bodyColor: 'var(--text-secondary)', padding: 12,
       }
     },
     scales: {
       x: {
-        title: { display: true, text: 'Expected Goals per 90 (xG/90)', color: '#aaa', font: { size: 13 } },
-        ticks: { color: '#aaa' }, grid: { color: '#1e2330' }, min: 0, max: maxVal,
+        title: { display: true, text: 'Expected Goals per 90 (xG/90)', color: 'var(--text-secondary)', font: { size: 13 } },
+        ticks: { color: 'var(--text-secondary)' }, grid: { color: 'var(--grid)' }, min: 0, max: maxVal,
       },
       y: {
-        title: { display: true, text: 'Actual Goals per 90', color: '#aaa', font: { size: 13 } },
-        ticks: { color: '#aaa' }, grid: { color: '#1e2330' }, min: 0, max: maxVal,
+        title: { display: true, text: 'Actual Goals per 90', color: 'var(--text-secondary)', font: { size: 13 } },
+        ticks: { color: 'var(--text-secondary)' }, grid: { color: 'var(--grid)' }, min: 0, max: maxVal,
       }
     }
   }
@@ -400,12 +400,12 @@ function XGPanel({ players, selectedPlayer, onSelectPlayer }) {
               padding: '5px 12px', borderRadius: '6px',
               border: `1px solid ${pos === 'All' ? '#00ff87' : POS_COLORS[pos] || '#00ff87'}`,
               background: position === pos ? (POS_COLORS[pos] || '#00ff87') : 'transparent',
-              color: position === pos ? '#000' : '#fff',
+              color: position === pos ? '#000' : 'var(--text)',
               cursor: 'pointer', fontWeight: position === pos ? 'bold' : 'normal', fontSize: '12px'
             }}>{pos}</button>
           ))}
         </div>
-        <span style={{ color: '#555', fontSize: '12px' }}>{filtered.length} players (180+ mins) · click any dot</span>
+        <span style={{ color: 'var(--text-muted)', fontSize: '12px' }}>{filtered.length} players (180+ mins) · click any dot</span>
       </div>
 
       <div style={{ height: '420px', marginBottom: '12px' }}>
@@ -414,12 +414,12 @@ function XGPanel({ players, selectedPlayer, onSelectPlayer }) {
 
       <div style={{ display: 'flex', gap: '16px', justifyContent: 'center', marginBottom: '24px' }}>
         <span style={{ fontSize: '12px', color: '#00ff87' }}>● Green = overperforming xG</span>
-        <span style={{ fontSize: '12px', color: '#fff' }}>● White = in line with xG</span>
+        <span style={{ fontSize: '12px', color: 'var(--text)' }}>● White = in line with xG</span>
         <span style={{ fontSize: '12px', color: '#ff8800' }}>● Orange = due a return</span>
       </div>
 
       {selected && (
-        <div style={{ background: '#0e1117', borderRadius: '12px', padding: '20px', border: `1px solid ${POS_COLORS[selected.position] || '#00ff87'}` }}>
+        <div style={{ background: 'var(--bg)', borderRadius: '12px', padding: '20px', border: `1px solid ${POS_COLORS[selected.position] || '#00ff87'}` }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '16px', flexWrap: 'wrap' }}>
             {selected.code && (
               <img src={`https://resources.premierleague.com/premierleague/photos/players/110x140/p${selected.code}.png`}
@@ -428,7 +428,7 @@ function XGPanel({ players, selectedPlayer, onSelectPlayer }) {
             )}
             <div style={{ flex: 1 }}>
               <div style={{ fontWeight: 'bold', fontSize: '18px' }}>{selected.web_name}</div>
-              <div style={{ color: '#aaa', fontSize: '13px' }}>{selected.team_name} · {selected.position} · £{selected.price}m</div>
+              <div style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>{selected.team_name} · {selected.position} · £{selected.price}m</div>
             </div>
             {history.length > 0 && (
               <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
@@ -437,11 +437,11 @@ function XGPanel({ players, selectedPlayer, onSelectPlayer }) {
                   ['xG (season)', seasonXG.toFixed(2), '#00b2ff'],
                   ['xG Diff', `${parseFloat(xgDiff) >= 0 ? '+' : ''}${xgDiff}`, parseFloat(xgDiff) >= 0 ? '#00ff87' : '#ff4444'],
                   ['xA (season)', seasonXA.toFixed(2), '#00b2ff'],
-                  ['xG/90', parseFloat(selected.xg_per90 || 0).toFixed(3), '#aaa'],
-                  ['xA/90', parseFloat(selected.xa_per90 || 0).toFixed(3), '#aaa'],
+                  ['xG/90', parseFloat(selected.xg_per90 || 0).toFixed(3), 'var(--text-secondary)'],
+                  ['xA/90', parseFloat(selected.xa_per90 || 0).toFixed(3), 'var(--text-secondary)'],
                 ].map(([label, val, color]) => (
-                  <div key={label} style={{ background: '#1a1f2e', borderRadius: '8px', padding: '8px 14px', textAlign: 'center' }}>
-                    <div style={{ color: '#aaa', fontSize: '10px', marginBottom: '2px' }}>{label}</div>
+                  <div key={label} style={{ background: 'var(--bg-card)', borderRadius: '8px', padding: '8px 14px', textAlign: 'center' }}>
+                    <div style={{ color: 'var(--text-secondary)', fontSize: '10px', marginBottom: '2px' }}>{label}</div>
                     <div style={{ color, fontWeight: 'bold', fontSize: '15px' }}>{val}</div>
                   </div>
                 ))}
@@ -460,7 +460,7 @@ function XGPanel({ players, selectedPlayer, onSelectPlayer }) {
                   ⏳ Underperforming xG by {Math.abs(per90Diff).toFixed(3)} goals/90 — return incoming
                 </span>
               ) : (
-                <span style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid #2a2f3e', borderRadius: '6px', padding: '6px 12px', fontSize: '13px', color: '#aaa' }}>
+                <span style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid var(--border)', borderRadius: '6px', padding: '6px 12px', fontSize: '13px', color: 'var(--text-secondary)' }}>
                   ✅ Performing in line with xG
                 </span>
               )}
@@ -468,14 +468,14 @@ function XGPanel({ players, selectedPlayer, onSelectPlayer }) {
           )}
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px', flexWrap: 'wrap' }}>
-            <span style={{ color: '#aaa', fontSize: '13px' }}>Compare with:</span>
+            <span style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>Compare with:</span>
             <PlayerSearch players={players} onSelect={selectCompare} placeholder="Search player..." excludeId={selected.id} />
             {compare && (
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <div style={{ width: '12px', height: '3px', background: '#ff8800', borderRadius: '2px' }} />
-                <span style={{ color: '#fff', fontSize: '13px', fontWeight: 'bold' }}>{compare.web_name}</span>
+                <span style={{ color: 'var(--text)', fontSize: '13px', fontWeight: 'bold' }}>{compare.web_name}</span>
                 <button onClick={() => { setCompare(null); setCompareHistory([]) }}
-                  style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer', fontSize: '16px', lineHeight: 1 }}>×</button>
+                  style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '16px', lineHeight: 1 }}>×</button>
               </div>
             )}
           </div>
@@ -514,8 +514,12 @@ function FormTimeline({ players, selectedPlayer, onSelectPlayer }) {
     } catch { setCompareHistory([]) }
   }
 
-  const avgPts = history.length
-    ? (history.reduce((s, h) => s + h.total_points, 0) / history.length).toFixed(1)
+  // Only count gameweeks the player actually appeared in (minutes > 0). This
+  // matches FPL's own Pts/Match — blanks, injuries, and full benchings would
+  // otherwise drag the average down and misrepresent the player.
+  const playedGWs = history.filter(h => (h.minutes || 0) > 0)
+  const avgPts = playedGWs.length
+    ? (playedGWs.reduce((s, h) => s + h.total_points, 0) / playedGWs.length).toFixed(1)
     : null
   const bestGW = history.length
     ? history.reduce((best, h) => h.total_points > best.total_points ? h : best, history[0])
@@ -550,10 +554,10 @@ function FormTimeline({ players, selectedPlayer, onSelectPlayer }) {
   const lineOptions = {
     responsive: true, maintainAspectRatio: false, animation: false,
     plugins: {
-      legend: { display: !!compare, labels: { color: '#aaa', boxWidth: 12, font: { size: 12 } } },
+      legend: { display: !!compare, labels: { color: 'var(--text-secondary)', boxWidth: 12, font: { size: 12 } } },
       tooltip: {
-        backgroundColor: '#0e1117', borderColor: '#2a2f3e', borderWidth: 1,
-        titleColor: '#aaa', bodyColor: '#fff',
+        backgroundColor: 'var(--bg)', borderColor: 'var(--border)', borderWidth: 1,
+        titleColor: 'var(--text-secondary)', bodyColor: 'var(--text)',
         callbacks: {
           afterBody: (items) => {
             const h = history[items[0].dataIndex]
@@ -570,10 +574,10 @@ function FormTimeline({ players, selectedPlayer, onSelectPlayer }) {
     },
     scales: {
       x: {
-        ticks: { color: '#aaa', font: { size: 11 } }, grid: { color: '#1e2330' },
-        title: { display: true, text: 'Gameweek', color: '#555', font: { size: 12 } }
+        ticks: { color: 'var(--text-secondary)', font: { size: 11 } }, grid: { color: 'var(--grid)' },
+        title: { display: true, text: 'Gameweek', color: 'var(--text-muted)', font: { size: 12 } }
       },
-      y: { ticks: { color: '#aaa', font: { size: 11 } }, grid: { color: '#1e2330' } }
+      y: { ticks: { color: 'var(--text-secondary)', font: { size: 11 } }, grid: { color: 'var(--grid)' } }
     }
   }
 
@@ -584,14 +588,14 @@ function FormTimeline({ players, selectedPlayer, onSelectPlayer }) {
       </div>
 
       {!selected && (
-        <div style={{ background: '#0e1117', borderRadius: '12px', padding: '48px', textAlign: 'center', border: '1px dashed #2a2f3e' }}>
+        <div style={{ background: 'var(--bg)', borderRadius: '12px', padding: '48px', textAlign: 'center', border: '1px dashed var(--border)' }}>
           <div style={{ fontSize: '32px', marginBottom: '12px' }}>📈</div>
-          <div style={{ color: '#aaa', fontSize: '14px' }}>Search for a player above to load their GW-by-GW points timeline</div>
+          <div style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>Search for a player above to load their GW-by-GW points timeline</div>
         </div>
       )}
 
       {selected && (
-        <div style={{ background: '#0e1117', borderRadius: '12px', padding: '20px', border: `1px solid ${POS_COLORS[selected.position] || '#00ff87'}` }}>
+        <div style={{ background: 'var(--bg)', borderRadius: '12px', padding: '20px', border: `1px solid ${POS_COLORS[selected.position] || '#00ff87'}` }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '20px', flexWrap: 'wrap' }}>
             {selected.code && (
               <img src={`https://resources.premierleague.com/premierleague/photos/players/110x140/p${selected.code}.png`}
@@ -600,20 +604,20 @@ function FormTimeline({ players, selectedPlayer, onSelectPlayer }) {
             )}
             <div style={{ flex: 1 }}>
               <div style={{ fontWeight: 'bold', fontSize: '20px' }}>{selected.web_name}</div>
-              <div style={{ color: '#aaa', fontSize: '13px' }}>{selected.team_name} · {selected.position} · £{selected.price}m</div>
+              <div style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>{selected.team_name} · {selected.position} · £{selected.price}m</div>
             </div>
             {avgPts && (
               <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
                 {[
-                  ['Season Pts', selected.total_points, '#fff'],
+                  ['Season Pts', selected.total_points, 'var(--text)'],
                   ['Avg / GW', avgPts, '#00ff87'],
                   ['Best GW', `GW${bestGW?.gameweek} (${bestGW?.total_points}pts)`, '#ffd700'],
                   ['Form', selected.form, '#00b2ff'],
                   ['xG/90', parseFloat(selected.xg_per90 || 0).toFixed(3), '#00b2ff'],
                   ['xA/90', parseFloat(selected.xa_per90 || 0).toFixed(3), '#00b2ff'],
                 ].map(([label, val, color]) => (
-                  <div key={label} style={{ background: '#1a1f2e', borderRadius: '8px', padding: '8px 14px', textAlign: 'center' }}>
-                    <div style={{ color: '#aaa', fontSize: '10px', marginBottom: '2px' }}>{label}</div>
+                  <div key={label} style={{ background: 'var(--bg-card)', borderRadius: '8px', padding: '8px 14px', textAlign: 'center' }}>
+                    <div style={{ color: 'var(--text-secondary)', fontSize: '10px', marginBottom: '2px' }}>{label}</div>
                     <div style={{ color, fontWeight: 'bold', fontSize: '15px' }}>{val}</div>
                   </div>
                 ))}
@@ -622,20 +626,20 @@ function FormTimeline({ players, selectedPlayer, onSelectPlayer }) {
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px', flexWrap: 'wrap' }}>
-            <span style={{ color: '#aaa', fontSize: '13px' }}>Compare with:</span>
+            <span style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>Compare with:</span>
             <PlayerSearch players={players} onSelect={selectCompare} placeholder="Search player to compare..." excludeId={selected.id} />
             {compare && (
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <div style={{ width: '12px', height: '3px', background: '#ff8800', borderRadius: '2px' }} />
-                <span style={{ color: '#fff', fontSize: '13px', fontWeight: 'bold' }}>{compare.web_name}</span>
+                <span style={{ color: 'var(--text)', fontSize: '13px', fontWeight: 'bold' }}>{compare.web_name}</span>
                 <button onClick={() => { setCompare(null); setCompareHistory([]) }}
-                  style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer', fontSize: '16px', lineHeight: 1 }}>×</button>
+                  style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '16px', lineHeight: 1 }}>×</button>
               </div>
             )}
           </div>
 
           {loading ? (
-            <p style={{ color: '#aaa', fontSize: '13px' }}>Loading timeline...</p>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>Loading timeline...</p>
           ) : (
             <div style={{ height: '280px', marginBottom: '24px' }}>
               <Line data={lineData} options={lineOptions} />
@@ -677,7 +681,7 @@ export default function Analytics({ initialPlayer = null }) {
   return (
     <div>
       <h2 style={{ marginBottom: '6px', color: '#00ff87' }}>📊 Analytics</h2>
-      <p style={{ color: '#aaa', marginBottom: '24px', fontSize: '14px' }}>
+      <p style={{ color: 'var(--text-secondary)', marginBottom: '24px', fontSize: '14px' }}>
         Other stats and cool charts! 
       </p>
 
@@ -685,9 +689,9 @@ export default function Analytics({ initialPlayer = null }) {
         {tabs.map(t => (
           <button key={t.key} onClick={() => setTab(t.key)} style={{
             padding: '10px 20px', borderRadius: '8px', cursor: 'pointer',
-            border: `1px solid ${tab === t.key ? '#00ff87' : '#2a2f3e'}`,
+            border: `1px solid ${tab === t.key ? '#00ff87' : 'var(--border)'}`,
             background: tab === t.key ? 'rgba(0,255,135,0.1)' : 'transparent',
-            color: tab === t.key ? '#00ff87' : '#aaa',
+            color: tab === t.key ? '#00ff87' : 'var(--text-secondary)',
             fontWeight: tab === t.key ? 'bold' : 'normal', fontSize: '14px',
             transition: 'all 0.15s'
           }}>
@@ -697,17 +701,17 @@ export default function Analytics({ initialPlayer = null }) {
       </div>
 
       {loading ? (
-        <div style={{ textAlign: 'center', padding: '60px', color: '#aaa' }}>
+        <div style={{ textAlign: 'center', padding: '60px', color: 'var(--text-secondary)' }}>
           <div style={{ fontSize: '32px', marginBottom: '12px' }}>⏳</div>
           Loading player data...
         </div>
       ) : (
-        <div style={{ background: '#1a1f2e', borderRadius: '12px', padding: '24px', border: '1px solid #2a2f3e' }}>
+        <div style={{ background: 'var(--bg-card)', borderRadius: '12px', padding: '24px', border: '1px solid var(--border)' }}>
           <div style={{ marginBottom: '20px' }}>
             <h3 style={{ margin: 0, fontSize: '17px', marginBottom: '4px' }}>
               {tabs.find(t => t.key === tab)?.label}
             </h3>
-            <p style={{ color: '#555', fontSize: '13px', margin: 0 }}>
+            <p style={{ color: 'var(--text-muted)', fontSize: '13px', margin: 0 }}>
               {tabs.find(t => t.key === tab)?.desc}
             </p>
           </div>
