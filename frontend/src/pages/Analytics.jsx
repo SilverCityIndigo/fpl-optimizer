@@ -656,8 +656,7 @@ function FormTimeline({ players, selectedPlayer, onSelectPlayer }) {
 // ─── Price vs Output Map ─────────────────────────────────────────────────────
 function ValueMap({ players, selectedPlayer, onSelectPlayer }) {
   const [position, setPosition] = useState('All')
-  const [focusIds, setFocusIds] = useState([])
-  const [viewMode, setViewMode] = useState('all') // all | focus | empty
+  const [compare, setCompare] = useState(null)
   const pool = players
     .filter(p => position === 'All' || p.position === position)
     .filter(p => (p.minutes || 0) >= 180)
@@ -669,46 +668,46 @@ function ValueMap({ players, selectedPlayer, onSelectPlayer }) {
       ownNum: parseFloat(p.selected_by_percent || 0),
     }))
 
-  const focusedPool = focusIds.length ? pool.filter(p => focusIds.includes(p.id)) : []
-  const visiblePool =
-    viewMode === 'empty' ? [] :
-    viewMode === 'focus' ? focusedPool :
-    pool
-
   const maxPrice = Math.max(...pool.map(p => p.priceNum), 8) + 0.5
   const maxPpg = Math.max(...pool.map(p => p.ppgNum), 6) + 0.6
-  const markerColor = (pos) => POS_COLORS[pos] || '#fff'
-
-  const addFocusedPlayer = (player) => {
-    setFocusIds(prev => {
-      if (prev.includes(player.id)) return prev
-      return [...prev.slice(-1), player.id] // keep max 2 for quick compare
-    })
-    setViewMode('focus')
-    onSelectPlayer(player)
-  }
-
-  const clearGraph = () => {
-    setFocusIds([])
-    setViewMode('empty')
-    onSelectPlayer(null)
-  }
+  const bgDots = pool.filter(p => p.id !== selectedPlayer?.id && p.id !== compare?.id)
+  const selectedDot = pool.find(p => p.id === selectedPlayer?.id)
+  const compareDot = pool.find(p => p.id === compare?.id)
 
   const scatterData = {
-    datasets: [{
-      label: 'Players',
-      data: visiblePool.map(p => ({ x: p.priceNum, y: p.ppgNum, player: p })),
-      pointRadius: (ctx) => {
-        const p = ctx.raw?.player
-        if (!p) return 4
-        if (focusIds.includes(p.id)) return 12
-        return Math.max(4, Math.min(12, p.valueNum * 1.25))
+    datasets: [
+      {
+        label: 'Players',
+        data: bgDots.map(p => ({ x: p.priceNum, y: p.ppgNum, player: p })),
+        pointRadius: (ctx) => {
+          const p = ctx.raw?.player
+          if (!p) return 4
+          return Math.max(3, Math.min(8, p.valueNum * 0.9))
+        },
+        pointHoverRadius: 8,
+        backgroundColor: 'rgba(255,255,255,0.14)',
+        borderColor: 'rgba(255,255,255,0.08)',
+        borderWidth: 1,
       },
-      pointHoverRadius: 10,
-      backgroundColor: visiblePool.map(p => markerColor(p.position)),
-      borderColor: 'rgba(0,0,0,0.25)',
-      borderWidth: 1,
-    }]
+      ...(selectedDot ? [{
+        label: selectedPlayer.web_name,
+        data: [{ x: selectedDot.priceNum, y: selectedDot.ppgNum, player: selectedDot }],
+        pointRadius: 11,
+        pointHoverRadius: 13,
+        backgroundColor: '#00ff87',
+        borderColor: '#00ff87',
+        borderWidth: 1,
+      }] : []),
+      ...(compareDot ? [{
+        label: compare.web_name,
+        data: [{ x: compareDot.priceNum, y: compareDot.ppgNum, player: compareDot }],
+        pointRadius: 11,
+        pointHoverRadius: 13,
+        backgroundColor: '#ff8800',
+        borderColor: '#ff8800',
+        borderWidth: 1,
+      }] : []),
+    ]
   }
 
   const scatterOptions = {
@@ -721,7 +720,7 @@ function ValueMap({ players, selectedPlayer, onSelectPlayer }) {
       if (point?.player) onSelectPlayer(point.player)
     },
     plugins: {
-      legend: { display: false },
+      legend: { display: !!compare, labels: { color: 'var(--text-secondary)' } },
       tooltip: {
         backgroundColor: 'var(--bg)',
         borderColor: 'var(--border)',
@@ -741,18 +740,22 @@ function ValueMap({ players, selectedPlayer, onSelectPlayer }) {
     },
     scales: {
       x: {
-        title: { display: true, text: 'Price (£m)', color: 'var(--text-secondary)' },
-        min: 3.5, max: maxPrice, ticks: { color: 'var(--text-secondary)' }, grid: { color: 'var(--grid)' },
+        title: { display: true, text: 'Price (£m)', color: 'var(--text)' },
+        min: 3.5, max: maxPrice, ticks: { color: 'var(--text)' }, grid: { color: 'var(--grid)' },
       },
       y: {
-        title: { display: true, text: 'Points per Game', color: 'var(--text-secondary)' },
-        min: 0, max: maxPpg, ticks: { color: 'var(--text-secondary)' }, grid: { color: 'var(--grid)' },
+        title: { display: true, text: 'Points per Game', color: 'var(--text)' },
+        min: 0, max: maxPpg, ticks: { color: 'var(--text)' }, grid: { color: 'var(--grid)' },
       }
     }
   }
 
   return (
     <div>
+      <div style={{ marginBottom: '14px' }}>
+        <PlayerSearch players={pool} onSelect={onSelectPlayer} placeholder="Search player..." />
+      </div>
+
       <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '14px' }}>
         {POSITIONS.map(pos => (
           <button key={pos} onClick={() => setPosition(pos)} style={{
@@ -765,27 +768,17 @@ function ValueMap({ players, selectedPlayer, onSelectPlayer }) {
         ))}
       </div>
 
-      <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap', marginBottom: '12px' }}>
-        <PlayerSearch
-          players={pool}
-          onSelect={addFocusedPlayer}
-          placeholder="Search player to focus (max 2)..."
-        />
-        <button onClick={() => setViewMode('all')} style={{
-          padding: '6px 10px', borderRadius: '6px', border: `1px solid ${viewMode === 'all' ? '#00ff87' : 'var(--border)'}`,
-          background: viewMode === 'all' ? 'rgba(0,255,135,0.12)' : 'transparent',
-          color: viewMode === 'all' ? '#00ff87' : 'var(--text-secondary)', cursor: 'pointer', fontSize: '12px'
-        }}>Show all</button>
-        <button onClick={() => setViewMode('focus')} disabled={!focusIds.length} style={{
-          padding: '6px 10px', borderRadius: '6px', border: `1px solid ${viewMode === 'focus' ? '#00ff87' : 'var(--border)'}`,
-          background: viewMode === 'focus' ? 'rgba(0,255,135,0.12)' : 'transparent',
-          color: !focusIds.length ? 'var(--text-muted)' : (viewMode === 'focus' ? '#00ff87' : 'var(--text-secondary)'),
-          cursor: !focusIds.length ? 'not-allowed' : 'pointer', fontSize: '12px'
-        }}>Focused only</button>
-        <button onClick={clearGraph} style={{
-          padding: '6px 10px', borderRadius: '6px', border: '1px solid var(--border)',
-          background: 'transparent', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '12px'
-        }}>Clear graph</button>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px', flexWrap: 'wrap' }}>
+        <span style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>Compare with:</span>
+        <PlayerSearch players={pool} onSelect={setCompare} placeholder="Search player to compare..." excludeId={selectedPlayer?.id ?? null} />
+        {compare && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <div style={{ width: '12px', height: '3px', background: '#ff8800', borderRadius: '2px' }} />
+            <span style={{ color: 'var(--text)', fontSize: '13px', fontWeight: 'bold' }}>{compare.web_name}</span>
+            <button onClick={() => setCompare(null)}
+              style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '16px', lineHeight: 1 }}>×</button>
+          </div>
+        )}
       </div>
 
       <div style={{ height: '420px' }}>
@@ -800,22 +793,16 @@ function ValueMap({ players, selectedPlayer, onSelectPlayer }) {
           Selected: <span style={{ color: '#00ff87', fontWeight: 'bold' }}>{selectedPlayer.web_name}</span>
         </p>
       )}
-      {focusIds.length > 0 && (
-        <p style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>
-          Focused: {focusedPool.map(p => p.web_name).join(' vs ')}
-        </p>
-      )}
     </div>
   )
 }
 
 // ─── Differential Radar ──────────────────────────────────────────────────────
-function DifferentialRadar({ players }) {
+function DifferentialRadar({ players, selectedPlayer, onSelectPlayer }) {
   const [position, setPosition] = useState('All')
-  const [focusIds, setFocusIds] = useState([])
-  const [viewMode, setViewMode] = useState('all') // all | focus | empty
+  const [compare, setCompare] = useState(null)
 
-  const allCandidates = players
+  const candidates = players
     .filter(p => position === 'All' || p.position === position)
     .filter(p => (p.minutes || 0) >= 270)
     .map(p => ({
@@ -828,24 +815,8 @@ function DifferentialRadar({ players }) {
     .sort((a, b) => (b.formNum * 0.7 + b.ppgNum * 0.3) - (a.formNum * 0.7 + a.ppgNum * 0.3))
     .slice(0, 15)
 
-  const focusedCandidates = focusIds.length ? allCandidates.filter(p => focusIds.includes(p.id)) : []
-  const candidates =
-    viewMode === 'empty' ? [] :
-    viewMode === 'focus' ? focusedCandidates :
-    allCandidates
-
-  const addFocusedPlayer = (player) => {
-    setFocusIds(prev => {
-      if (prev.includes(player.id)) return prev
-      return [...prev.slice(-1), player.id]
-    })
-    setViewMode('focus')
-  }
-
-  const clearGraph = () => {
-    setFocusIds([])
-    setViewMode('empty')
-  }
+  const selectedId = selectedPlayer?.id
+  const compareId = compare?.id
 
   const barData = {
     labels: candidates.map(p => p.web_name),
@@ -853,14 +824,22 @@ function DifferentialRadar({ players }) {
       {
         label: 'Form',
         data: candidates.map(p => p.formNum),
-        backgroundColor: 'rgba(0, 255, 135, 0.72)',
+        backgroundColor: candidates.map(p =>
+          p.id === selectedId ? 'rgba(0, 255, 135, 0.9)'
+          : p.id === compareId ? 'rgba(255,136,0,0.85)'
+          : 'rgba(255,255,255,0.18)'
+        ),
         borderColor: '#00ff87',
         borderWidth: 1,
       },
       {
         label: 'Ownership %',
         data: candidates.map(p => p.ownNum),
-        backgroundColor: 'rgba(0, 178, 255, 0.55)',
+        backgroundColor: candidates.map(p =>
+          p.id === selectedId ? 'rgba(0, 178, 255, 0.85)'
+          : p.id === compareId ? 'rgba(255,136,0,0.55)'
+          : 'rgba(255,255,255,0.12)'
+        ),
         borderColor: '#00b2ff',
         borderWidth: 1,
       }
@@ -870,8 +849,15 @@ function DifferentialRadar({ players }) {
   const barOptions = {
     responsive: true,
     maintainAspectRatio: false,
+    onClick: (_, elements) => {
+      if (!elements.length) return
+      const idx = elements[0].index
+      if (idx == null) return
+      const p = candidates[idx]
+      if (p) onSelectPlayer(p)
+    },
     plugins: {
-      legend: { labels: { color: 'var(--text-secondary)' } },
+      legend: { labels: { color: 'var(--text)' } },
       tooltip: {
         backgroundColor: 'var(--bg)',
         borderColor: 'var(--border)',
@@ -879,13 +865,17 @@ function DifferentialRadar({ players }) {
       }
     },
     scales: {
-      x: { ticks: { color: 'var(--text-secondary)' }, grid: { color: 'var(--grid)' } },
-      y: { ticks: { color: 'var(--text-secondary)' }, grid: { color: 'var(--grid)' } }
+      x: { ticks: { color: 'var(--text)' }, grid: { color: 'var(--grid)' } },
+      y: { ticks: { color: 'var(--text)' }, grid: { color: 'var(--grid)' } }
     }
   }
 
   return (
     <div>
+      <div style={{ marginBottom: '14px' }}>
+        <PlayerSearch players={candidates} onSelect={onSelectPlayer} placeholder="Search player..." />
+      </div>
+
       <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '12px' }}>
         {POSITIONS.map(pos => (
           <button key={pos} onClick={() => setPosition(pos)} style={{
@@ -898,27 +888,17 @@ function DifferentialRadar({ players }) {
         ))}
       </div>
 
-      <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap', marginBottom: '12px' }}>
-        <PlayerSearch
-          players={allCandidates}
-          onSelect={addFocusedPlayer}
-          placeholder="Search differential to focus (max 2)..."
-        />
-        <button onClick={() => setViewMode('all')} style={{
-          padding: '6px 10px', borderRadius: '6px', border: `1px solid ${viewMode === 'all' ? '#00ff87' : 'var(--border)'}`,
-          background: viewMode === 'all' ? 'rgba(0,255,135,0.12)' : 'transparent',
-          color: viewMode === 'all' ? '#00ff87' : 'var(--text-secondary)', cursor: 'pointer', fontSize: '12px'
-        }}>Show all</button>
-        <button onClick={() => setViewMode('focus')} disabled={!focusIds.length} style={{
-          padding: '6px 10px', borderRadius: '6px', border: `1px solid ${viewMode === 'focus' ? '#00ff87' : 'var(--border)'}`,
-          background: viewMode === 'focus' ? 'rgba(0,255,135,0.12)' : 'transparent',
-          color: !focusIds.length ? 'var(--text-muted)' : (viewMode === 'focus' ? '#00ff87' : 'var(--text-secondary)'),
-          cursor: !focusIds.length ? 'not-allowed' : 'pointer', fontSize: '12px'
-        }}>Focused only</button>
-        <button onClick={clearGraph} style={{
-          padding: '6px 10px', borderRadius: '6px', border: '1px solid var(--border)',
-          background: 'transparent', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '12px'
-        }}>Clear graph</button>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px', flexWrap: 'wrap' }}>
+        <span style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>Compare with:</span>
+        <PlayerSearch players={candidates} onSelect={setCompare} placeholder="Search player to compare..." excludeId={selectedPlayer?.id ?? null} />
+        {compare && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <div style={{ width: '12px', height: '3px', background: '#ff8800', borderRadius: '2px' }} />
+            <span style={{ color: 'var(--text)', fontSize: '13px', fontWeight: 'bold' }}>{compare.web_name}</span>
+            <button onClick={() => setCompare(null)}
+              style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '16px', lineHeight: 1 }}>×</button>
+          </div>
+        )}
       </div>
 
       <div style={{ height: '390px' }}>
@@ -926,11 +906,11 @@ function DifferentialRadar({ players }) {
       </div>
 
       <p style={{ marginTop: '10px', color: 'var(--text-muted)', fontSize: '12px' }}>
-        Idea: target high-form, lower-owned players before ownership catches up.
+        Grey bars show the pool baseline. Green = selected player, orange = compare player.
       </p>
-      {focusIds.length > 0 && (
+      {selectedPlayer && (
         <p style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>
-          Focused: {focusedCandidates.map(p => p.web_name).join(' vs ')}
+          Selected: <span style={{ color: '#00ff87', fontWeight: 'bold' }}>{selectedPlayer.web_name}</span>
         </p>
       )}
     </div>
@@ -1011,7 +991,7 @@ export default function Analytics({ initialPlayer = null }) {
             <ValueMap players={players} selectedPlayer={selectedPlayer} onSelectPlayer={setSelectedPlayer} />
           )}
           {tab === 'radar' && (
-            <DifferentialRadar players={players} />
+            <DifferentialRadar players={players} selectedPlayer={selectedPlayer} onSelectPlayer={setSelectedPlayer} />
           )}
         </div>
       )}
