@@ -656,6 +656,8 @@ function FormTimeline({ players, selectedPlayer, onSelectPlayer }) {
 // ─── Price vs Output Map ─────────────────────────────────────────────────────
 function ValueMap({ players, selectedPlayer, onSelectPlayer }) {
   const [position, setPosition] = useState('All')
+  const [focusIds, setFocusIds] = useState([])
+  const [viewMode, setViewMode] = useState('all') // all | focus | empty
   const pool = players
     .filter(p => position === 'All' || p.position === position)
     .filter(p => (p.minutes || 0) >= 180)
@@ -667,21 +669,43 @@ function ValueMap({ players, selectedPlayer, onSelectPlayer }) {
       ownNum: parseFloat(p.selected_by_percent || 0),
     }))
 
+  const focusedPool = focusIds.length ? pool.filter(p => focusIds.includes(p.id)) : []
+  const visiblePool =
+    viewMode === 'empty' ? [] :
+    viewMode === 'focus' ? focusedPool :
+    pool
+
   const maxPrice = Math.max(...pool.map(p => p.priceNum), 8) + 0.5
   const maxPpg = Math.max(...pool.map(p => p.ppgNum), 6) + 0.6
   const markerColor = (pos) => POS_COLORS[pos] || '#fff'
 
+  const addFocusedPlayer = (player) => {
+    setFocusIds(prev => {
+      if (prev.includes(player.id)) return prev
+      return [...prev.slice(-1), player.id] // keep max 2 for quick compare
+    })
+    setViewMode('focus')
+    onSelectPlayer(player)
+  }
+
+  const clearGraph = () => {
+    setFocusIds([])
+    setViewMode('empty')
+    onSelectPlayer(null)
+  }
+
   const scatterData = {
     datasets: [{
       label: 'Players',
-      data: pool.map(p => ({ x: p.priceNum, y: p.ppgNum, player: p })),
+      data: visiblePool.map(p => ({ x: p.priceNum, y: p.ppgNum, player: p })),
       pointRadius: (ctx) => {
         const p = ctx.raw?.player
         if (!p) return 4
+        if (focusIds.includes(p.id)) return 12
         return Math.max(4, Math.min(12, p.valueNum * 1.25))
       },
       pointHoverRadius: 10,
-      backgroundColor: pool.map(p => markerColor(p.position)),
+      backgroundColor: visiblePool.map(p => markerColor(p.position)),
       borderColor: 'rgba(0,0,0,0.25)',
       borderWidth: 1,
     }]
@@ -741,6 +765,29 @@ function ValueMap({ players, selectedPlayer, onSelectPlayer }) {
         ))}
       </div>
 
+      <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap', marginBottom: '12px' }}>
+        <PlayerSearch
+          players={pool}
+          onSelect={addFocusedPlayer}
+          placeholder="Search player to focus (max 2)..."
+        />
+        <button onClick={() => setViewMode('all')} style={{
+          padding: '6px 10px', borderRadius: '6px', border: `1px solid ${viewMode === 'all' ? '#00ff87' : 'var(--border)'}`,
+          background: viewMode === 'all' ? 'rgba(0,255,135,0.12)' : 'transparent',
+          color: viewMode === 'all' ? '#00ff87' : 'var(--text-secondary)', cursor: 'pointer', fontSize: '12px'
+        }}>Show all</button>
+        <button onClick={() => setViewMode('focus')} disabled={!focusIds.length} style={{
+          padding: '6px 10px', borderRadius: '6px', border: `1px solid ${viewMode === 'focus' ? '#00ff87' : 'var(--border)'}`,
+          background: viewMode === 'focus' ? 'rgba(0,255,135,0.12)' : 'transparent',
+          color: !focusIds.length ? 'var(--text-muted)' : (viewMode === 'focus' ? '#00ff87' : 'var(--text-secondary)'),
+          cursor: !focusIds.length ? 'not-allowed' : 'pointer', fontSize: '12px'
+        }}>Focused only</button>
+        <button onClick={clearGraph} style={{
+          padding: '6px 10px', borderRadius: '6px', border: '1px solid var(--border)',
+          background: 'transparent', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '12px'
+        }}>Clear graph</button>
+      </div>
+
       <div style={{ height: '420px' }}>
         <Scatter data={scatterData} options={scatterOptions} />
       </div>
@@ -753,6 +800,11 @@ function ValueMap({ players, selectedPlayer, onSelectPlayer }) {
           Selected: <span style={{ color: '#00ff87', fontWeight: 'bold' }}>{selectedPlayer.web_name}</span>
         </p>
       )}
+      {focusIds.length > 0 && (
+        <p style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>
+          Focused: {focusedPool.map(p => p.web_name).join(' vs ')}
+        </p>
+      )}
     </div>
   )
 }
@@ -760,7 +812,10 @@ function ValueMap({ players, selectedPlayer, onSelectPlayer }) {
 // ─── Differential Radar ──────────────────────────────────────────────────────
 function DifferentialRadar({ players }) {
   const [position, setPosition] = useState('All')
-  const candidates = players
+  const [focusIds, setFocusIds] = useState([])
+  const [viewMode, setViewMode] = useState('all') // all | focus | empty
+
+  const allCandidates = players
     .filter(p => position === 'All' || p.position === position)
     .filter(p => (p.minutes || 0) >= 270)
     .map(p => ({
@@ -772,6 +827,25 @@ function DifferentialRadar({ players }) {
     .filter(p => p.ownNum <= 40)
     .sort((a, b) => (b.formNum * 0.7 + b.ppgNum * 0.3) - (a.formNum * 0.7 + a.ppgNum * 0.3))
     .slice(0, 15)
+
+  const focusedCandidates = focusIds.length ? allCandidates.filter(p => focusIds.includes(p.id)) : []
+  const candidates =
+    viewMode === 'empty' ? [] :
+    viewMode === 'focus' ? focusedCandidates :
+    allCandidates
+
+  const addFocusedPlayer = (player) => {
+    setFocusIds(prev => {
+      if (prev.includes(player.id)) return prev
+      return [...prev.slice(-1), player.id]
+    })
+    setViewMode('focus')
+  }
+
+  const clearGraph = () => {
+    setFocusIds([])
+    setViewMode('empty')
+  }
 
   const barData = {
     labels: candidates.map(p => p.web_name),
@@ -824,6 +898,29 @@ function DifferentialRadar({ players }) {
         ))}
       </div>
 
+      <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap', marginBottom: '12px' }}>
+        <PlayerSearch
+          players={allCandidates}
+          onSelect={addFocusedPlayer}
+          placeholder="Search differential to focus (max 2)..."
+        />
+        <button onClick={() => setViewMode('all')} style={{
+          padding: '6px 10px', borderRadius: '6px', border: `1px solid ${viewMode === 'all' ? '#00ff87' : 'var(--border)'}`,
+          background: viewMode === 'all' ? 'rgba(0,255,135,0.12)' : 'transparent',
+          color: viewMode === 'all' ? '#00ff87' : 'var(--text-secondary)', cursor: 'pointer', fontSize: '12px'
+        }}>Show all</button>
+        <button onClick={() => setViewMode('focus')} disabled={!focusIds.length} style={{
+          padding: '6px 10px', borderRadius: '6px', border: `1px solid ${viewMode === 'focus' ? '#00ff87' : 'var(--border)'}`,
+          background: viewMode === 'focus' ? 'rgba(0,255,135,0.12)' : 'transparent',
+          color: !focusIds.length ? 'var(--text-muted)' : (viewMode === 'focus' ? '#00ff87' : 'var(--text-secondary)'),
+          cursor: !focusIds.length ? 'not-allowed' : 'pointer', fontSize: '12px'
+        }}>Focused only</button>
+        <button onClick={clearGraph} style={{
+          padding: '6px 10px', borderRadius: '6px', border: '1px solid var(--border)',
+          background: 'transparent', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '12px'
+        }}>Clear graph</button>
+      </div>
+
       <div style={{ height: '390px' }}>
         <Bar data={barData} options={barOptions} />
       </div>
@@ -831,6 +928,11 @@ function DifferentialRadar({ players }) {
       <p style={{ marginTop: '10px', color: 'var(--text-muted)', fontSize: '12px' }}>
         Idea: target high-form, lower-owned players before ownership catches up.
       </p>
+      {focusIds.length > 0 && (
+        <p style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>
+          Focused: {focusedCandidates.map(p => p.web_name).join(' vs ')}
+        </p>
+      )}
     </div>
   )
 }
