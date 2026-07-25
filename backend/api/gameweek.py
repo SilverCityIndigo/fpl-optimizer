@@ -14,11 +14,20 @@ def get_current_gameweek():
     c = conn.cursor()
     c.execute("SELECT * FROM gameweeks WHERE is_current = 1 LIMIT 1")
     row = c.fetchone()
-    conn.close()
+    preseason = False
     if not row:
-        return {"error": "No current gameweek found"}
+        # Before the season starts there is no current GW — show the upcoming one.
+        c.execute("SELECT * FROM gameweeks WHERE is_next = 1 LIMIT 1")
+        row = c.fetchone()
+        preseason = True
+    if not row:
+        conn.close()
+        return {"error": "No gameweek data found. Run a data sync."}
     cols = [desc[0] for desc in c.description] if c.description else []
-    return dict(zip(cols, row))
+    conn.close()
+    result = dict(zip(cols, row))
+    result["preseason"] = preseason
+    return result
 
 @router.get("/fdr-table")
 def get_fdr_table(next_gws: int = 5):
