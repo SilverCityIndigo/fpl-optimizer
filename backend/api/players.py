@@ -6,13 +6,21 @@ from services.optimizer import get_players_for_optimization
 
 router = APIRouter()
 
+
 def get_db():
     conn = psycopg2.connect(os.environ["DATABASE_URL"])
     return conn
 
+
 def rows_to_dicts(cursor):
     cols = [desc[0] for desc in cursor.description]
     return [dict(zip(cols, row)) for row in cursor.fetchall()]
+
+
+def _season_started(c) -> bool:
+    c.execute("SELECT EXISTS(SELECT 1 FROM gameweeks WHERE finished = 1)")
+    return bool(c.fetchone()[0])
+
 
 @router.get("/")
 def get_players(position: str = None, team_id: int = None):
@@ -31,22 +39,26 @@ def get_players(position: str = None, team_id: int = None):
     if team_id:
         query += " AND p.team_id = %s"
         params.append(team_id)
-    query += " ORDER BY p.total_points DESC"
+    # Pre-season everyone has 0 total points, so lead with projected points.
+    query += " ORDER BY COALESCE(p.projected_points, 0) DESC, p.total_points DESC"
     c.execute(query, params)
     players = rows_to_dicts(c)
     conn.close()
     return players
 
+
 @router.get("/value")
 def get_value_picks():
+    """Best forward-looking value: projected points per £m. Works pre-season
+    (when season totals are all 0) because it ranks on projections, not history."""
     conn = get_db()
     c = conn.cursor()
     c.execute("""
         SELECT p.*, t.short_name as team_name,
-               ROUND(p.total_points * 1.0 / p.price, 2) as value_score
+               ROUND((p.projected_points / NULLIF(p.price, 0))::numeric, 2) as value_score
         FROM players p
         JOIN teams t ON p.team_id = t.id
-        WHERE p.minutes > 90 AND p.status = 'a'
+        WHERE p.status = 'a' AND p.projected_points IS NOT NULL
         ORDER BY value_score DESC
         LIMIT 20
     """)
@@ -54,24 +66,45 @@ def get_value_picks():
     conn.close()
     return players
 
+
 @router.get("/differentials")
 def get_differentials():
     conn = get_db()
     c = conn.cursor()
-    c.execute("""
-        SELECT p.id, p.code, p.web_name, p.position, p.price,
-               p.total_points, p.points_per_game, p.form,
-               p.selected_by_percent, p.status, p.minutes,
-               t.short_name as team_name, t.id as team_id
-        FROM players p
-        JOIN teams t ON p.team_id = t.id
-        WHERE p.status = 'a'
-        AND p.form::float >= 4.0
-        AND p.points_per_game::float >= 3.5
-        AND p.selected_by_percent::float < 15.0
-        AND p.minutes > 0
-        ORDER BY p.form::float DESC
-    """)
+    started = _season_started(c)
+
+    if started:
+        # In-season: reward form + scoring rate at low ownership.
+        c.execute("""
+            SELECT p.id, p.code, p.web_name, p.position, p.price,
+                   p.total_points, p.points_per_game, p.form,
+                   p.selected_by_percent, p.status, p.minutes,
+                   COALESCE(p.projected_points, 0) as projected_points,
+                   t.short_name as team_name, t.id as team_id
+            FROM players p
+            JOIN teams t ON p.team_id = t.id
+            WHERE p.status = 'a'
+              AND p.form::float >= 4.0
+              AND p.points_per_game::float >= 3.5
+              AND p.selected_by_percent::float < 15.0
+              AND p.minutes > 0
+            ORDER BY p.form::float DESC
+        """)
+    else:
+        # Pre-season: no form yet — rank low-ownership players by projection.
+        c.execute("""
+            SELECT p.id, p.code, p.web_name, p.position, p.price,
+                   p.total_points, p.points_per_game, p.form,
+                   p.selected_by_percent, p.status, p.minutes,
+                   COALESCE(p.projected_points, 0) as projected_points,
+                   t.short_name as team_name, t.id as team_id
+            FROM players p
+            JOIN teams t ON p.team_id = t.id
+            WHERE p.status = 'a'
+              AND p.selected_by_percent::float < 15.0
+              AND p.projected_points IS NOT NULL
+            ORDER BY p.projected_points DESC
+        """)
     players = rows_to_dicts(c)
 
     c.execute("""
@@ -102,19 +135,30 @@ def get_differentials():
         form = float(p["form"])
         ppg = float(p["points_per_game"])
         ownership = float(p["selected_by_percent"])
-        reasons = []
-        if form >= 7:
-            reasons.append(f"on fire with {form} form")
-        elif form >= 5:
-            reasons.append(f"in great form ({form})")
+        proj = float(p["projected_points"] or 0)
+
+        if started:
+            reasons = []
+            if form >= 7:
+                reasons.append(f"on fire with {form} form")
+            elif form >= 5:
+                reasons.append(f"in great form ({form})")
+            else:
+                reasons.append(f"decent form ({form})")
+            if ppg >= 6:
+                reasons.append(f"elite {ppg} PPG")
+            elif ppg >= 5:
+                reasons.append(f"strong {ppg} PPG")
+            else:
+                reasons.append(f"{ppg} PPG")
         else:
-            reasons.append(f"decent form ({form})")
-        if ppg >= 6:
-            reasons.append(f"elite {ppg} PPG")
-        elif ppg >= 5:
-            reasons.append(f"strong {ppg} PPG")
-        else:
-            reasons.append(f"{ppg} PPG")
+            # Pre-season framing: projection + pedigree rather than form.
+            reasons = [f"projected {round(proj, 1)} pts next GW"]
+            if fdr <= 2:
+                reasons.append("strong underlying numbers")
+            else:
+                reasons.append("promising underlying numbers")
+
         if fdr <= 2:
             reasons.append(f"faces an easy fixture ({fixture})")
         elif fdr == 3:
@@ -125,6 +169,7 @@ def get_differentials():
         why = f"{reasons[0].capitalize()}, {reasons[1]}, {reasons[2]}, and {reasons[3]}."
         result.append({**p, "fdr": fdr, "fdr_label": fdr_label, "fixture": fixture, "why": why})
     return result
+
 
 @router.get("/price-changes")
 def get_price_changes():
@@ -160,6 +205,7 @@ def get_price_changes():
     result.sort(key=lambda x: -x["pressure_score"])
     return result
 
+
 @router.get("/{player_id}/history")
 def get_player_history(player_id: int):
     conn = get_db()
@@ -173,22 +219,39 @@ def get_player_history(player_id: int):
     conn.close()
     return history
 
+
 @router.get("/team/{team_id}")
 def get_team_squad(team_id: int):
     try:
         conn = get_db()
         c = conn.cursor()
+        # Prefer the current gameweek; before the season starts fall back to the
+        # upcoming one. No more hardcoded gameweek number.
         c.execute("SELECT id FROM gameweeks WHERE is_current = 1 LIMIT 1")
         row = c.fetchone()
+        if not row:
+            c.execute("SELECT id FROM gameweeks WHERE is_next = 1 LIMIT 1")
+            row = c.fetchone()
+        if not row:
+            conn.close()
+            return {"error": "No active or upcoming gameweek found. Try again once the season is set up."}
+        pick_gw = row[0]
+
+        c.execute("SELECT id FROM gameweeks WHERE is_next = 1 LIMIT 1")
+        next_row = c.fetchone()
+        next_gw = next_row[0] if next_row else pick_gw
         conn.close()
-        current_gw = row[0] if row else 29
 
         r = requests.get(
-            f"https://fantasy.premierleague.com/api/entry/{team_id}/event/{current_gw}/picks/",
+            f"https://fantasy.premierleague.com/api/entry/{team_id}/event/{pick_gw}/picks/",
             headers={"User-Agent": "Mozilla/5.0"}, timeout=10
         )
         if r.status_code != 200:
-            return {"error": f"Could not fetch team (status {r.status_code}). Check your team ID."}
+            return {"error": (
+                f"Could not fetch team (status {r.status_code}). Double-check your team ID. "
+                "If the new season hasn't kicked off yet, team import becomes available once "
+                "Gameweek 1 goes live."
+            )}
 
         data = r.json()
         raw_picks = data["picks"]
@@ -214,7 +277,7 @@ def get_team_squad(team_id: int):
                 if v >= 2:
                     chips_available[k] = False
 
-        all_players = get_players_for_optimization(os.environ["DATABASE_URL"])
+        all_players = get_players_for_optimization()
         proj_map = {p["id"]: p for p in all_players}
 
         conn2 = get_db()
@@ -256,7 +319,7 @@ def get_team_squad(team_id: int):
         return {
             "players": players, "player_ids": player_ids, "picks": picks,
             "bank": bank, "transfers_left": transfers_left,
-            "chips_available": chips_available, "next_gw": current_gw + 1,
+            "chips_available": chips_available, "next_gw": next_gw,
         }
     except Exception as e:
         return {"error": str(e)}

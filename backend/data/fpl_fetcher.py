@@ -1,62 +1,236 @@
 """
-FPL Data Fetcher — Postgres/Supabase version
+FPL Data Fetcher — Postgres/Supabase version.
+
+Data sources
+------------
+* Official FPL REST API — teams, players, gameweeks, fixtures, per-GW stats,
+  and (new for 25/26+) per-90 expected stats served straight from
+  ``bootstrap-static``.  This is the auto-updating hot path: every sync pulls
+  the latest numbers with no scraping and no manual step.
+* Understat — only used to *seed* underlying stats for players who are brand
+  new to the Premier League (arrivals from other leagues) so the projection
+  algorithm has something to work with before they have played a PL minute.
+
+Season handling
+---------------
+The projection algorithm needs xG/xA and a points baseline.  At the start of a
+season nobody has played, so those come from a "seed":
+
+* Returning players  -> their last completed PL season (FPL ``history_past``),
+  matched by player id (reliable, no fuzzy matching).
+* New arrivals       -> Understat foreign-league data, fuzzy-matched by name
+  (best effort, flagged via ``xg_source``).
+
+As real 26/27 minutes accumulate, ``compute_projections`` blends the live
+current-season numbers in and the seed out, so the tool is useful on day one
+and self-corrects as the season plays out.
 """
 
 import os
+import sys
+import argparse
+import unicodedata
 import requests
 import psycopg2
-from datetime import datetime
-from rapidfuzz import process, fuzz
-from understatapi import UnderstatClient
+from datetime import datetime, timezone
 
 BASE_URL = "https://fantasy.premierleague.com/api"
-UNDERSTAT_SEASON = "2025"
 HEADERS = {"User-Agent": "Mozilla/5.0"}
+
+# Season the *current* campaign maps to on Understat (used only if we ever want
+# live Understat EPL data; the hot path now reads xG from FPL bootstrap).
+UNDERSTAT_CURRENT_SEASON = os.environ.get("UNDERSTAT_SEASON", "2026")
+# Last completed season, used to seed newcomers from foreign leagues.
+UNDERSTAT_SEED_SEASON = os.environ.get("UNDERSTAT_SEED_SEASON", "2025")
+
+# Understat league codes to scan for new-arrival seeding.
+# These must match understatapi's accepted identifiers exactly
+# (["EPL", "La_Liga", "Bundesliga", "Serie_A", "Ligue_1", "RFPL"]).
+FOREIGN_LEAGUES = ["La_Liga", "Serie_A", "Bundesliga", "Ligue_1", "RFPL"]
+
+POSITION_MAP = {1: "GKP", 2: "DEF", 3: "MID", 4: "FWD"}
 
 
 def get_conn():
     return psycopg2.connect(os.environ["DATABASE_URL"])
 
 
+def _now_iso():
+    return datetime.now(timezone.utc).isoformat()
+
+
+# --------------------------------------------------------------------------- #
+# HTTP helpers                                                                 #
+# --------------------------------------------------------------------------- #
+
 def get_bootstrap():
-    r = requests.get(f"{BASE_URL}/bootstrap-static/", headers=HEADERS, timeout=15)
+    r = requests.get(f"{BASE_URL}/bootstrap-static/", headers=HEADERS, timeout=20)
     r.raise_for_status()
     return r.json()
 
 
 def get_fixtures():
-    r = requests.get(f"{BASE_URL}/fixtures/", headers=HEADERS, timeout=15)
+    r = requests.get(f"{BASE_URL}/fixtures/", headers=HEADERS, timeout=20)
     r.raise_for_status()
     return r.json()
 
 
 def get_player_history(player_id: int):
-    r = requests.get(f"{BASE_URL}/element-summary/{player_id}/", headers=HEADERS, timeout=15)
+    r = requests.get(f"{BASE_URL}/element-summary/{player_id}/", headers=HEADERS, timeout=20)
     r.raise_for_status()
     return r.json()
 
 
 def get_event_live(gw: int):
     """Bulk per-player stats for a single gameweek — one HTTP call covers everyone."""
-    r = requests.get(f"{BASE_URL}/event/{gw}/live/", headers=HEADERS, timeout=15)
+    r = requests.get(f"{BASE_URL}/event/{gw}/live/", headers=HEADERS, timeout=20)
     r.raise_for_status()
     return r.json()
 
 
+def season_has_started(events: list) -> bool:
+    """True once any gameweek of the current campaign has finished. Before that
+    we are in pre-season and the bootstrap's cumulative fields (minutes, points,
+    ppg) still echo last season, so we treat current-season sample size as 0."""
+    return any(e.get("finished") for e in events)
+
+
+def _f(v, default=0.0):
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return default
+
+
+def _per90(total, minutes) -> float:
+    m = _f(minutes)
+    if m < 1:
+        return 0.0
+    return round(_f(total) / (m / 90.0), 3)
+
+
+def _ascii_fold(text: str) -> str:
+    """Strip diacritics and lowercase, so FPL's stripped/common names
+    (Dembele) match Understat's accented forms (Dembélé) when fuzzy matching."""
+    if not text:
+        return ""
+    normalized = unicodedata.normalize("NFKD", text)
+    return "".join(c for c in normalized if not unicodedata.combining(c)).lower().strip()
+
+
+# --------------------------------------------------------------------------- #
+# Schema (idempotent — safe to run against a fresh or existing Supabase DB)    #
+# --------------------------------------------------------------------------- #
+
 def init_db():
-    # Schema is created directly in Supabase — this is a no-op now.
-    print("✅ Database schema managed via Supabase.")
+    """Create tables if missing and add any new columns. Idempotent, so it can
+    run on every sync. Existing tables/data are never dropped."""
+    conn = get_conn()
+    c = conn.cursor()
+
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS teams (
+            id INTEGER PRIMARY KEY,
+            name TEXT, short_name TEXT, strength INTEGER,
+            strength_attack_home INTEGER, strength_attack_away INTEGER,
+            strength_defence_home INTEGER, strength_defence_away INTEGER
+        )
+    """)
+
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS players (
+            id INTEGER PRIMARY KEY,
+            code INTEGER, web_name TEXT, full_name TEXT,
+            team_id INTEGER, position TEXT, price DOUBLE PRECISION,
+            total_points INTEGER, points_per_game DOUBLE PRECISION,
+            form DOUBLE PRECISION, selected_by_percent DOUBLE PRECISION,
+            minutes INTEGER, goals_scored INTEGER, assists INTEGER,
+            clean_sheets INTEGER, bonus INTEGER, ict_index DOUBLE PRECISION,
+            news TEXT, chance_of_playing_next_round INTEGER, status TEXT,
+            transfers_in_event INTEGER, transfers_out_event INTEGER,
+            xg_per90 DOUBLE PRECISION DEFAULT 0.0,
+            xa_per90 DOUBLE PRECISION DEFAULT 0.0,
+            xgi_per90 DOUBLE PRECISION DEFAULT 0.0,
+            updated_at TEXT
+        )
+    """)
+
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS gameweeks (
+            id INTEGER PRIMARY KEY,
+            name TEXT, deadline_time TEXT,
+            finished INTEGER, is_current INTEGER, is_next INTEGER,
+            average_entry_score INTEGER, highest_score INTEGER
+        )
+    """)
+
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS fixtures (
+            id INTEGER PRIMARY KEY,
+            gameweek INTEGER, team_h INTEGER, team_a INTEGER,
+            team_h_difficulty INTEGER, team_a_difficulty INTEGER,
+            team_h_score INTEGER, team_a_score INTEGER,
+            finished INTEGER, kickoff_time TEXT
+        )
+    """)
+
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS player_gameweek_history (
+            player_id INTEGER, gameweek INTEGER,
+            total_points INTEGER, minutes INTEGER,
+            goals_scored INTEGER, assists INTEGER, clean_sheets INTEGER,
+            bonus INTEGER, bps INTEGER, ict_index DOUBLE PRECISION,
+            value DOUBLE PRECISION, selected INTEGER,
+            transfers_in INTEGER, transfers_out INTEGER,
+            expected_goals DOUBLE PRECISION, expected_assists DOUBLE PRECISION,
+            expected_goal_involvements DOUBLE PRECISION,
+            expected_goals_conceded DOUBLE PRECISION,
+            saves INTEGER, defensive_contribution INTEGER,
+            clearances_blocks_interceptions INTEGER, recoveries INTEGER,
+            tackles INTEGER, influence DOUBLE PRECISION,
+            creativity DOUBLE PRECISION, threat DOUBLE PRECISION,
+            yellow_cards INTEGER, red_cards INTEGER, own_goals INTEGER,
+            penalties_saved INTEGER, penalties_missed INTEGER,
+            PRIMARY KEY (player_id, gameweek)
+        )
+    """)
+
+    # New columns for seeding + precomputed projections. ADD ... IF NOT EXISTS
+    # so existing Supabase tables get upgraded in place.
+    new_cols = [
+        ("players", "seed_xg90", "DOUBLE PRECISION DEFAULT 0.0"),
+        ("players", "seed_xa90", "DOUBLE PRECISION DEFAULT 0.0"),
+        ("players", "seed_ppg", "DOUBLE PRECISION DEFAULT 0.0"),
+        ("players", "last_season_points", "INTEGER DEFAULT 0"),
+        ("players", "last_season_minutes", "INTEGER DEFAULT 0"),
+        ("players", "xg_source", "TEXT DEFAULT ''"),
+        ("players", "projected_points", "DOUBLE PRECISION"),
+        ("players", "projected_updated_at", "TEXT"),
+        # Guard against older schemas missing the newer stat columns.
+        ("player_gameweek_history", "defensive_contribution", "INTEGER DEFAULT 0"),
+        ("player_gameweek_history", "clearances_blocks_interceptions", "INTEGER DEFAULT 0"),
+        ("player_gameweek_history", "recoveries", "INTEGER DEFAULT 0"),
+        ("player_gameweek_history", "tackles", "INTEGER DEFAULT 0"),
+    ]
+    for table, col, coltype in new_cols:
+        c.execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {col} {coltype}")
+
+    conn.commit()
+    conn.close()
+    print("✅ Schema ready (tables + columns ensured).")
 
 
-POSITION_MAP = {1: "GKP", 2: "DEF", 3: "MID", 4: "FWD"}
-
+# --------------------------------------------------------------------------- #
+# Bootstrap: teams, players (incl. live current-season xG), gameweeks          #
+# --------------------------------------------------------------------------- #
 
 def sync_bootstrap():
     print("📡 Fetching bootstrap data...")
     data = get_bootstrap()
+    started = season_has_started(data["events"])
     conn = get_conn()
     c = conn.cursor()
-    now = datetime.utcnow().isoformat()
+    now = _now_iso()
 
     for t in data["teams"]:
         c.execute("""
@@ -76,6 +250,13 @@ def sync_bootstrap():
               t["strength_defence_home"], t["strength_defence_away"]))
 
     for p in data["elements"]:
+        # Current-season per-90 expected stats come straight from FPL now.
+        # Pre-season these are 0.0; the seed columns cover that gap and
+        # compute_projections() blends the two by real minutes played.
+        cur_xg90 = _f(p.get("expected_goals_per_90"))
+        cur_xa90 = _f(p.get("expected_assists_per_90"))
+        cur_xgi90 = _f(p.get("expected_goal_involvements_per_90"))
+
         c.execute("""
             INSERT INTO players (
                 id, code, web_name, full_name, team_id, position, price,
@@ -84,7 +265,7 @@ def sync_bootstrap():
                 ict_index, news, chance_of_playing_next_round, status,
                 transfers_in_event, transfers_out_event,
                 xg_per90, xa_per90, xgi_per90, updated_at
-            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,0.0,0.0,0.0,%s)
+            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
             ON CONFLICT(id) DO UPDATE SET
                 code=EXCLUDED.code, web_name=EXCLUDED.web_name,
                 full_name=EXCLUDED.full_name, team_id=EXCLUDED.team_id,
@@ -101,6 +282,8 @@ def sync_bootstrap():
                 status=EXCLUDED.status,
                 transfers_in_event=EXCLUDED.transfers_in_event,
                 transfers_out_event=EXCLUDED.transfers_out_event,
+                xg_per90=EXCLUDED.xg_per90, xa_per90=EXCLUDED.xa_per90,
+                xgi_per90=EXCLUDED.xgi_per90,
                 updated_at=EXCLUDED.updated_at
         """, (
             p["id"], p.get("code"),
@@ -110,14 +293,15 @@ def sync_bootstrap():
             POSITION_MAP.get(p["element_type"], "UNK"),
             p["now_cost"] / 10.0,
             p["total_points"],
-            float(p["points_per_game"] or 0),
-            float(p["form"] or 0),
-            float(p.get("selected_by_percent") or p.get("selected_by_pct") or 0),
+            _f(p.get("points_per_game")),
+            _f(p.get("form")),
+            _f(p.get("selected_by_percent") or p.get("selected_by_pct")),
             p["minutes"], p["goals_scored"], p["assists"], p["clean_sheets"],
-            p["bonus"], float(p["ict_index"] or 0),
+            p["bonus"], _f(p.get("ict_index")),
             p.get("news", ""), p.get("chance_of_playing_next_round"),
             p["status"],
             p.get("transfers_in_event", 0), p.get("transfers_out_event", 0),
+            cur_xg90, cur_xa90, cur_xgi90,
             now
         ))
 
@@ -140,7 +324,8 @@ def sync_bootstrap():
 
     conn.commit()
     conn.close()
-    print(f"✅ Synced {len(data['elements'])} players, {len(data['teams'])} teams.")
+    label = "in-season" if started else "pre-season"
+    print(f"✅ Synced {len(data['elements'])} players, {len(data['teams'])} teams ({label}).")
 
 
 def sync_fixtures():
@@ -156,6 +341,8 @@ def sync_fixtures():
             VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
             ON CONFLICT(id) DO UPDATE SET
                 gameweek=EXCLUDED.gameweek,
+                team_h_difficulty=EXCLUDED.team_h_difficulty,
+                team_a_difficulty=EXCLUDED.team_a_difficulty,
                 team_h_score=EXCLUDED.team_h_score,
                 team_a_score=EXCLUDED.team_a_score,
                 finished=EXCLUDED.finished,
@@ -170,6 +357,10 @@ def sync_fixtures():
     conn.close()
     print(f"✅ Synced {len(fixtures)} fixtures.")
 
+
+# --------------------------------------------------------------------------- #
+# Per-gameweek history (current season) + last-season seeding (one pass)       #
+# --------------------------------------------------------------------------- #
 
 def _aggregate_history_by_round(history: list) -> list:
     """Collapse multiple history rows for the same gameweek (double GWs) into one
@@ -203,24 +394,62 @@ def _aggregate_history_by_round(history: list) -> list:
     return list(by_round.values())
 
 
-def sync_player_histories(limit: int = None):
+def _latest_past_season(history_past: list) -> dict | None:
+    """Pick the most recent completed PL season entry from element-summary
+    history_past (each has season_name like '2025/26')."""
+    best, best_year = None, -1
+    for entry in history_past or []:
+        name = str(entry.get("season_name", ""))
+        try:
+            year = int(name[:4])
+        except (ValueError, TypeError):
+            year = -1
+        if year >= best_year and _f(entry.get("minutes")) > 0:
+            best, best_year = entry, year
+    return best
+
+
+def _seed_from_past(c, player_id: int, position: str, past: dict) -> None:
+    """Write last-season baseline (xG/90, xA/90, points/90, totals) for a
+    returning player. Keyed by id, so no name matching needed."""
+    minutes = int(_f(past.get("minutes")))
+    points = int(_f(past.get("total_points")))
+    seed_xg90 = _per90(past.get("expected_goals"), minutes)
+    seed_xa90 = _per90(past.get("expected_assists"), minutes)
+    # Points per 90 as a per-GW baseline for the form-decay fallback.
+    seed_ppg = round(points / max(1.0, minutes / 90.0), 3)
+    c.execute("""
+        UPDATE players SET
+            seed_xg90=%s, seed_xa90=%s, seed_ppg=%s,
+            last_season_points=%s, last_season_minutes=%s,
+            xg_source='fpl_hist'
+        WHERE id=%s
+    """, (seed_xg90, seed_xa90, seed_ppg, points, minutes, player_id))
+
+
+def sync_player_histories(limit: int = None, seed: bool = True):
+    """For every player: (1) upsert current-season per-GW history rows, and
+    (2) if `seed`, derive the last-season baseline from history_past in the same
+    HTTP call. One element-summary request per player."""
     conn = get_conn()
     c = conn.cursor()
-    c.execute("SELECT id FROM players ORDER BY total_points DESC")
-    player_ids = [row[0] for row in c.fetchall()]
+    c.execute("SELECT id, position FROM players ORDER BY total_points DESC")
+    player_rows = c.fetchall()
     conn.close()
 
     if limit:
-        player_ids = player_ids[:limit]
+        player_rows = player_rows[:limit]
 
-    print(f"📡 Syncing history for {len(player_ids)} players...")
+    print(f"📡 Syncing history/seed for {len(player_rows)} players...")
+    seeded = 0
 
-    for i, pid in enumerate(player_ids):
+    for i, (pid, position) in enumerate(player_rows):
         try:
             data = get_player_history(pid)
             conn = get_conn()
             c = conn.cursor()
-            for gw in _aggregate_history_by_round(data["history"]):
+
+            for gw in _aggregate_history_by_round(data.get("history", [])):
                 c.execute("""
                     INSERT INTO player_gameweek_history (
                         player_id, gameweek, total_points, minutes,
@@ -249,6 +478,10 @@ def sync_player_histories(limit: int = None):
                         expected_goal_involvements=EXCLUDED.expected_goal_involvements,
                         expected_goals_conceded=EXCLUDED.expected_goals_conceded,
                         saves=EXCLUDED.saves,
+                        defensive_contribution=EXCLUDED.defensive_contribution,
+                        clearances_blocks_interceptions=EXCLUDED.clearances_blocks_interceptions,
+                        recoveries=EXCLUDED.recoveries,
+                        tackles=EXCLUDED.tackles,
                         influence=EXCLUDED.influence,
                         creativity=EXCLUDED.creativity,
                         threat=EXCLUDED.threat,
@@ -258,126 +491,169 @@ def sync_player_histories(limit: int = None):
                     pid, gw["round"], gw["total_points"], gw["minutes"],
                     gw["goals_scored"], gw["assists"], gw["clean_sheets"],
                     gw["bonus"], gw["bps"],
-                    float(gw["ict_index"] or 0),
+                    _f(gw.get("ict_index")),
                     gw["value"] / 10.0, gw["selected"],
                     gw["transfers_in"], gw["transfers_out"],
-                    float(gw.get("expected_goals") or 0),
-                    float(gw.get("expected_assists") or 0),
-                    float(gw.get("expected_goal_involvements") or 0),
-                    float(gw.get("expected_goals_conceded") or 0),
-                    int(gw.get("saves") or 0),
-                    int(gw.get("defensive_contribution") or 0),
-                    int(gw.get("clearances_blocks_interceptions") or 0),
-                    int(gw.get("recoveries") or 0),
-                    int(gw.get("tackles") or 0),
-                    float(gw.get("influence") or 0),
-                    float(gw.get("creativity") or 0),
-                    float(gw.get("threat") or 0),
-                    int(gw.get("yellow_cards") or 0),
-                    int(gw.get("red_cards") or 0),
-                    int(gw.get("own_goals") or 0),
-                    int(gw.get("penalties_saved") or 0),
-                    int(gw.get("penalties_missed") or 0),
+                    _f(gw.get("expected_goals")),
+                    _f(gw.get("expected_assists")),
+                    _f(gw.get("expected_goal_involvements")),
+                    _f(gw.get("expected_goals_conceded")),
+                    int(_f(gw.get("saves"))),
+                    int(_f(gw.get("defensive_contribution"))),
+                    int(_f(gw.get("clearances_blocks_interceptions"))),
+                    int(_f(gw.get("recoveries"))),
+                    int(_f(gw.get("tackles"))),
+                    _f(gw.get("influence")),
+                    _f(gw.get("creativity")),
+                    _f(gw.get("threat")),
+                    int(_f(gw.get("yellow_cards"))),
+                    int(_f(gw.get("red_cards"))),
+                    int(_f(gw.get("own_goals"))),
+                    int(_f(gw.get("penalties_saved"))),
+                    int(_f(gw.get("penalties_missed"))),
                 ))
+
+            if seed:
+                past = _latest_past_season(data.get("history_past", []))
+                if past:
+                    _seed_from_past(c, pid, position, past)
+                    seeded += 1
+
             conn.commit()
             conn.close()
             if (i + 1) % 50 == 0:
-                print(f"  ... {i+1}/{len(player_ids)}")
+                print(f"  ... {i+1}/{len(player_rows)}")
         except Exception as e:
             print(f"  ⚠️  Failed for player {pid}: {e}")
 
-    print("✅ Player histories synced.")
+    print(f"✅ Player histories synced. Seeded {seeded} returning players from last season.")
 
 
-def fetch_understat_xg() -> dict:
-    print(f"📡 Fetching Understat xG data for EPL {UNDERSTAT_SEASON}...")
-    xg_data = {}
+# --------------------------------------------------------------------------- #
+# Understat foreign-league seeding for brand-new PL players                    #
+# --------------------------------------------------------------------------- #
+
+def _fetch_understat_league(understat, league: str, season: str) -> dict:
+    """Return {player_name: {xg_per90, xa_per90, minutes}} for one league/season."""
+    out = {}
     try:
-        with UnderstatClient() as understat:
-            players = understat.league(league="EPL").get_player_data(season=UNDERSTAT_SEASON)
-        for p in players:
-            try:
-                minutes = float(p.get("time", 0) or 0)
-                if minutes < 90:
-                    continue
-                nineties = minutes / 90.0
-                xg = float(p.get("xG", 0) or 0)
-                xa = float(p.get("xA", 0) or 0)
-                xg_data[p["player_name"]] = {
-                    "xg_per90":  round(xg / nineties, 3),
-                    "xa_per90":  round(xa / nineties, 3),
-                    "xgi_per90": round((xg + xa) / nineties, 3),
-                    "minutes":   int(minutes),
-                }
-            except (ValueError, TypeError, KeyError):
-                continue
-        print(f"✅ Understat: got xG data for {len(xg_data)} players")
+        players = understat.league(league=league).get_player_data(season=season)
     except Exception as e:
-        print(f"⚠️  Understat fetch failed: {e}.")
-    return xg_data
+        print(f"  ⚠️  Understat {league} {season} failed: {e}")
+        return out
+    for p in players:
+        minutes = _f(p.get("time"))
+        if minutes < 300:  # need a meaningful sample to trust the rate
+            continue
+        nineties = minutes / 90.0
+        out[p.get("player_name", "")] = {
+            "xg_per90": round(_f(p.get("xG")) / nineties, 3),
+            "xa_per90": round(_f(p.get("xA")) / nineties, 3),
+            "minutes": int(minutes),
+        }
+    return out
 
 
-def fuzzy_match_xg(fpl_players: list, xg_data: dict) -> dict:
-    if not xg_data:
-        return {}
-    understat_names = list(xg_data.keys())
-    matched = {}
-    unmatched = []
-    for fpl_id, full_name, web_name in fpl_players:
-        best_match = None
+def sync_understat_newcomers():
+    """Seed underlying stats for players with no last-season PL baseline
+    (xg_source still ''), by fuzzy-matching their name across Understat's other
+    leagues. Best effort — unmatched players simply keep the position/price
+    priors used by the projection algorithm."""
+    from understatapi import UnderstatClient
+    from rapidfuzz import process, fuzz
+
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("""
+        SELECT id, full_name, web_name, position
+        FROM players
+        WHERE COALESCE(xg_source, '') = '' AND status != 'u'
+    """)
+    newcomers = c.fetchall()
+    conn.close()
+
+    if not newcomers:
+        print("✅ No un-seeded newcomers to match.")
+        return
+
+    print(f"📡 Seeding {len(newcomers)} newcomers from Understat foreign leagues...")
+    combined: dict = {}
+    with UnderstatClient() as understat:
+        for league in FOREIGN_LEAGUES:
+            league_data = _fetch_understat_league(understat, league, UNDERSTAT_SEED_SEASON)
+            # Keep the highest-minutes entry when a name appears in several leagues.
+            for name, stats in league_data.items():
+                if name not in combined or stats["minutes"] > combined[name]["minutes"]:
+                    combined[name] = stats
+            print(f"   {league}: {len(league_data)} players (>=300 min)")
+
+    if not combined:
+        print("⚠️  No Understat foreign data available — skipping newcomer seed.")
+        return
+
+    # Match on accent-folded names (Understat stores accented/legal forms;
+    # FPL stores stripped/common ones). Keep the highest-minutes stats on any
+    # folded-name collision.
+    folded_index: dict[str, dict] = {}
+    for name, stats in combined.items():
+        key = _ascii_fold(name)
+        if key not in folded_index or stats["minutes"] > folded_index[key]["minutes"]:
+            folded_index[key] = stats
+    folded_names = list(folded_index.keys())
+
+    matched = 0
+    conn = get_conn()
+    c = conn.cursor()
+    for pid, full_name, web_name, position in newcomers:
+        best = None
         best_score = 0
         for query in [full_name, web_name]:
             if not query:
                 continue
-            result = process.extractOne(query, understat_names,
-                scorer=fuzz.token_sort_ratio, score_cutoff=78)
-            if result and result[1] > best_score:
-                best_match = result
-                best_score = result[1]
-        if best_match:
-            matched[fpl_id] = {**xg_data[best_match[0]]}
-        else:
-            unmatched.append(full_name)
-    print(f"✅ Fuzzy matched {len(matched)}/{len(fpl_players)} players to Understat")
-    if unmatched[:5]:
-        print(f"   Unmatched examples: {unmatched[:5]}")
-    return matched
-
-
-def sync_xg():
-    conn = get_conn()
-    c = conn.cursor()
-    c.execute("SELECT id, full_name, web_name FROM players")
-    fpl_players = c.fetchall()
-    conn.close()
-    xg_data = fetch_understat_xg()
-    if not xg_data:
-        print("⚠️  No xG data — skipping.")
-        return
-    matched = fuzzy_match_xg(fpl_players, xg_data)
-    if not matched:
-        print("⚠️  No matches — skipping.")
-        return
-    conn = get_conn()
-    c = conn.cursor()
-    for fpl_id, stats in matched.items():
+            res = process.extractOne(_ascii_fold(query), folded_names,
+                                     scorer=fuzz.token_sort_ratio, score_cutoff=80)
+            if res and res[1] > best_score:
+                best, best_score = res, res[1]
+        if not best:
+            continue
+        stats = folded_index[best[0]]
+        xg90, xa90, mins = stats["xg_per90"], stats["xa_per90"], stats["minutes"]
+        # Rough FPL points/90 prior for a newcomer, driven by their attacking
+        # output abroad. Deliberately conservative: translation across leagues
+        # is uncertain, so we lean on xG rather than inventing a points history.
+        xg_signal = _position_xg_signal(position, xg90, xa90)
+        seed_ppg = round(2.0 + 0.6 * xg_signal, 3)
         c.execute("""
-            UPDATE players SET xg_per90=%s, xa_per90=%s, xgi_per90=%s WHERE id=%s
-        """, (stats["xg_per90"], stats["xa_per90"], stats["xgi_per90"], fpl_id))
+            UPDATE players SET
+                seed_xg90=%s, seed_xa90=%s, seed_ppg=%s,
+                last_season_minutes=%s, xg_source='understat_foreign'
+            WHERE id=%s
+        """, (xg90, xa90, seed_ppg, mins, pid))
+        matched += 1
     conn.commit()
     conn.close()
-    print(f"✅ xG data stored for {len(matched)} players.")
+    print(f"✅ Seeded {matched}/{len(newcomers)} newcomers from Understat.")
 
+
+def _position_xg_signal(position: str, xg90: float, xa90: float) -> float:
+    """Positional weighting of attacking rate — mirrors the projection blend so
+    the newcomer points prior is consistent with in-season scoring."""
+    if position == "DEF":
+        return xa90 * 3.0
+    if position == "MID":
+        return xg90 * 5.0 + xa90 * 3.0
+    if position == "FWD":
+        return xg90 * 4.0 + xa90 * 3.0
+    return 0.0
+
+
+# --------------------------------------------------------------------------- #
+# Live per-gameweek refresh (fast path during the season)                      #
+# --------------------------------------------------------------------------- #
 
 def sync_event_live(gw: int) -> int:
-    """Sync per-player stats for a single gameweek using FPL's bulk live endpoint.
-    One HTTP call covers every player, so this is the fast path for keeping the
-    most recent gameweek(s) up to date. Returns rows touched.
-
-    Columns that aren't returned by /event/{gw}/live (value, selected,
-    transfers_in, transfers_out) are filled with sensible defaults on INSERT and
-    left untouched on UPDATE — they get correct values from the next
-    sync_player_histories run."""
+    """Sync per-player stats for a single gameweek using FPL's bulk live
+    endpoint. One HTTP call covers every player. Returns rows touched."""
     print(f"📡 Fetching live stats for GW{gw}...")
     try:
         data = get_event_live(gw)
@@ -453,20 +729,20 @@ def sync_event_live(gw: int) -> int:
             int(s.get("goals_scored") or 0), int(s.get("assists") or 0),
             int(s.get("clean_sheets") or 0), int(s.get("bonus") or 0),
             int(s.get("bps") or 0),
-            float(s.get("ict_index") or 0),
+            _f(s.get("ict_index")),
             eligible[pid], 0, 0, 0,
-            float(s.get("expected_goals") or 0),
-            float(s.get("expected_assists") or 0),
-            float(s.get("expected_goal_involvements") or 0),
-            float(s.get("expected_goals_conceded") or 0),
+            _f(s.get("expected_goals")),
+            _f(s.get("expected_assists")),
+            _f(s.get("expected_goal_involvements")),
+            _f(s.get("expected_goals_conceded")),
             int(s.get("saves") or 0),
             int(s.get("defensive_contribution") or 0),
             int(s.get("clearances_blocks_interceptions") or 0),
             int(s.get("recoveries") or 0),
             int(s.get("tackles") or 0),
-            float(s.get("influence") or 0),
-            float(s.get("creativity") or 0),
-            float(s.get("threat") or 0),
+            _f(s.get("influence")),
+            _f(s.get("creativity")),
+            _f(s.get("threat")),
             int(s.get("yellow_cards") or 0),
             int(s.get("red_cards") or 0),
             int(s.get("own_goals") or 0),
@@ -496,7 +772,7 @@ def sync_recent_events(num_recent: int = 3) -> int:
     conn.close()
 
     if not gw_ids:
-        print("⚠️  No finished/current gameweeks to sync.")
+        print("ℹ️  No finished/current gameweeks yet (pre-season).")
         return 0
 
     total = 0
@@ -507,10 +783,8 @@ def sync_recent_events(num_recent: int = 3) -> int:
 
 
 def cleanup_blank_gameweeks() -> int:
-    """Defensive cleanup: remove any player_gameweek_history row for a GW where
-    the player's team had no fixture (a true blank). FPL's element-summary
-    normally omits these, but this guards against drift if a fixture is moved
-    between gameweeks. Idempotent."""
+    """Remove any player_gameweek_history row for a GW where the player's team
+    had no fixture (a true blank). Idempotent."""
     conn = get_conn()
     c = conn.cursor()
     c.execute("""
@@ -533,15 +807,91 @@ def cleanup_blank_gameweeks() -> int:
     return deleted
 
 
-def full_sync():
+# --------------------------------------------------------------------------- #
+# Projections (precomputed and stored so read endpoints stay fast)            #
+# --------------------------------------------------------------------------- #
+
+def sync_projections() -> int:
+    """Run the projection algorithm once and store the result on each player, so
+    the API can serve projections with a single fast SELECT instead of
+    recomputing per request. Returns number of players projected."""
+    from services.optimizer import compute_projections
+    projections = compute_projections()  # [{id, projected_points}, ...]
+    now = _now_iso()
+    conn = get_conn()
+    c = conn.cursor()
+    # Reset first so players who dropped out of eligibility go back to NULL.
+    c.execute("UPDATE players SET projected_points = NULL")
+    for row in projections:
+        c.execute(
+            "UPDATE players SET projected_points=%s, projected_updated_at=%s WHERE id=%s",
+            (row["projected_points"], now, row["id"]),
+        )
+    conn.commit()
+    conn.close()
+    print(f"✅ Stored projections for {len(projections)} players.")
+    return len(projections)
+
+
+# --------------------------------------------------------------------------- #
+# Orchestration                                                                #
+# --------------------------------------------------------------------------- #
+
+def sync_light():
+    """Fast, frequent sync — safe to run every couple of hours. Refreshes
+    prices/form/xG (bootstrap), fixtures, the latest GW's live stats, and
+    recomputes projections. Also keeps Supabase from auto-pausing."""
     init_db()
     sync_bootstrap()
     sync_fixtures()
-    sync_player_histories()
+    sync_recent_events(num_recent=2)
     cleanup_blank_gameweeks()
-    sync_xg()
-    print("🎉 Full sync complete!")
+    sync_projections()
+    print("🎉 Light sync complete!")
+
+
+def sync_deep():
+    """Heavier daily sync — full per-player history + last-season seeding +
+    newcomer seeding, then projections."""
+    init_db()
+    sync_bootstrap()
+    sync_fixtures()
+    sync_player_histories(seed=True)
+    sync_understat_newcomers()
+    cleanup_blank_gameweeks()
+    sync_projections()
+    print("🎉 Deep sync complete!")
+
+
+def full_sync():
+    """Everything, from a cold/empty database. Use for the initial season seed."""
+    sync_deep()
+
+
+COMMANDS = {
+    "migrate": init_db,
+    "bootstrap": sync_bootstrap,
+    "fixtures": sync_fixtures,
+    "light": sync_light,
+    "deep": sync_deep,
+    "full": full_sync,
+    "history": lambda: sync_player_histories(seed=True),
+    "seed-newcomers": sync_understat_newcomers,
+    "projections": sync_projections,
+    "recent": lambda: sync_recent_events(3),
+    "cleanup": cleanup_blank_gameweeks,
+}
+
+
+def main():
+    parser = argparse.ArgumentParser(description="FPL data sync")
+    parser.add_argument("command", nargs="?", default="full", choices=list(COMMANDS))
+    args = parser.parse_args()
+    if "DATABASE_URL" not in os.environ:
+        print("❌ DATABASE_URL is not set.", file=sys.stderr)
+        sys.exit(1)
+    COMMANDS[args.command]()
 
 
 if __name__ == "__main__":
-    full_sync()
+    main()
