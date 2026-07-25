@@ -8,7 +8,8 @@ import ChipAdvisor from './pages/ChipAdvisor'
 import Analytics from './pages/Analytics'
 import './index.css'
 
-const THEME_KEY = 'fpl-lab-theme'
+const THEME_KEY = 'xg-files-theme'
+const COLLAPSE_KEY = 'xg-files-collapsed'
 
 function getInitialTheme() {
   if (typeof window === 'undefined') return 'dark'
@@ -18,9 +19,42 @@ function getInitialTheme() {
   return 'dark'
 }
 
+// ─── The xG Files sigil — a goal net with an X-target in front (FIFA skill-game nod)
+function Sigil() {
+  return (
+    <svg viewBox="0 0 48 48" fill="none" aria-hidden="true">
+      {/* goal frame: posts + crossbar */}
+      <path d="M7 42V13.5h34V42" stroke="var(--goal)" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" opacity="0.7" />
+      {/* net mesh */}
+      <g stroke="var(--goal)" strokeWidth="0.9" opacity="0.28">
+        <path d="M7 21h34M7 28.5h34M7 36h34" />
+        <path d="M14 13.5V42M21 13.5V42M27 13.5V42M34 13.5V42" />
+      </g>
+      {/* target rings in front */}
+      <circle cx="24" cy="29" r="11.4" stroke="var(--accent)" strokeWidth="2.3" />
+      <circle cx="24" cy="29" r="5.6" stroke="var(--accent)" strokeWidth="1.5" opacity="0.45" />
+      {/* the X */}
+      <path d="M18.2 23.2 29.8 34.8M29.8 23.2 18.2 34.8" stroke="var(--accent)" strokeWidth="3.1" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+const NAV = [
+  { group: 'Squad' },
+  { key: 'players',       label: 'Players',   icon: <><circle cx="12" cy="8" r="3.4" /><path d="M5.5 20a6.5 6.5 0 0 1 13 0" /></> },
+  { key: 'transfers',     label: 'Transfers', icon: <path d="M4 8h13l-3-3M20 16H7l3 3" /> },
+  { key: 'captain',       label: 'Captain',   icon: <path d="M13 2 4.5 13H11l-1 9 8.5-11H12z" /> },
+  { key: 'chips',         label: 'Chips',     icon: <><circle cx="12" cy="12" r="8.4" /><circle cx="12" cy="12" r="3.4" /><path d="M12 3.6v3M12 17.4v3M3.6 12h3M17.4 12h3" /></> },
+  { group: 'Intelligence' },
+  { key: 'differentials', label: 'Scout',     icon: <><circle cx="11" cy="11" r="6.5" /><path d="m20 20-3.6-3.6" /></> },
+  { key: 'pricechanges',  label: 'Prices',    icon: <><path d="M20 12a8 8 0 1 1-8-8" /><path d="M12 12l5-3" /><path d="M12 4a8 8 0 0 1 8 8h-8z" /></> },
+  { key: 'analytics',     label: 'Analytics', icon: <><path d="M4 20V4M4 20h16" /><rect x="7.5" y="12" width="3" height="5" /><rect x="13" y="8" width="3" height="9" /></> },
+]
+
 export default function App() {
   const [page, setPage] = useState('players')
   const [theme, setTheme] = useState(getInitialTheme)
+  const [collapsed, setCollapsed] = useState(() => window.localStorage.getItem(COLLAPSE_KEY) === '1')
   const [analyticsPlayer, setAnalyticsPlayer] = useState(null)
 
   // Shared team ID state across Transfers, Captain, Chips
@@ -32,9 +66,11 @@ export default function App() {
     try { window.localStorage.setItem(THEME_KEY, theme) } catch { /* ignore */ }
   }, [theme])
 
-  function toggleTheme() {
-    setTheme(t => (t === 'dark' ? 'light' : 'dark'))
-  }
+  useEffect(() => {
+    try { window.localStorage.setItem(COLLAPSE_KEY, collapsed ? '1' : '0') } catch { /* ignore */ }
+  }, [collapsed])
+
+  function toggleTheme() { setTheme(t => (t === 'dark' ? 'light' : 'dark')) }
 
   function goToAnalytics(player) {
     setAnalyticsPlayer(player)
@@ -42,86 +78,68 @@ export default function App() {
   }
 
   return (
-    <div style={{ minHeight: '100vh', background: 'var(--bg)', color: 'var(--text)', fontFamily: 'sans-serif' }}>
-      <nav style={{ background: 'var(--bg-card)', padding: '12px 24px', display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap', borderBottom: '1px solid var(--border)' }}>
-        <div style={{ marginRight: '16px', display: 'flex', flexDirection: 'column', gap: '1px' }}>
-          <span style={{ fontWeight: 'bold', fontSize: '18px', color: '#00ff87', lineHeight: '1' }}>⚽ FPL Lab</span>
-          <span style={{ fontSize: '10px', color: 'var(--text-secondary)', lineHeight: '1', fontWeight: 'bold' }}>by SilverCityIndigo</span>
-        </div>
+    <div className={`app-shell${collapsed ? ' collapsed' : ''}`}>
+      <aside className="sidebar">
+        <button className="brand" onClick={() => setPage('players')} title="The xG Files">
+          <span className="brand-sigil"><Sigil /></span>
+          <span className="brand-word">
+            <span className="the">The</span>
+            <span className="name"><span className="xg">xG</span> <span className="files">FILES</span></span>
+          </span>
+        </button>
 
-        <div style={{ display: 'flex', gap: '8px', flex: 1, justifyContent: 'center', flexWrap: 'wrap' }}>
-          <button onClick={() => setPage('players')}        style={navBtn(page === 'players')}>      👤 Players</button>
-          <button onClick={() => setPage('transfers')}      style={navBtn(page === 'transfers')}>    🔄 Transfers</button>
-          <button onClick={() => setPage('captain')}        style={navBtn(page === 'captain')}>      ⚡ Captain</button>
-          <button onClick={() => setPage('chips')}          style={navBtn(page === 'chips')}>        🃏 Chips</button>
-          <button onClick={() => setPage('differentials')}  style={navBtn(page === 'differentials')}>🔍 Scout</button>
-          <button onClick={() => setPage('pricechanges')}   style={navBtn(page === 'pricechanges')}> 💰 Prices</button>
-          <button onClick={() => setPage('analytics')}      style={navBtn(page === 'analytics')}>    📊 Analytics</button>
-        </div>
+        <nav className="nav">
+          {NAV.map((item, i) =>
+            item.group ? (
+              <div key={`g-${i}`} className="nav-group">{item.group}</div>
+            ) : (
+              <button
+                key={item.key}
+                className={`nav-item${page === item.key ? ' active' : ''}`}
+                onClick={() => setPage(item.key)}
+                title={item.label}
+              >
+                <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">{item.icon}</svg>
+                <span className="nav-txt">{item.label}</span>
+              </button>
+            )
+          )}
+        </nav>
 
-        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <button
-            onClick={toggleTheme}
-            title={theme === 'dark' ? 'Switch to sky blue theme' : 'Switch to charcoal dark theme'}
-            aria-label={theme === 'dark' ? 'Switch to sky theme' : 'Switch to dark theme'}
-            style={{
-              background: 'transparent',
-              border: '1px solid var(--border)',
-              borderRadius: '6px',
-              color: 'var(--text-secondary)',
-              cursor: 'pointer',
-              padding: '4px 10px',
-              fontSize: '15px',
-              lineHeight: 1,
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              transition: 'color 0.15s, border-color 0.15s, background 0.15s'
-            }}
-            onMouseEnter={e => { e.currentTarget.style.color = 'var(--text)'; e.currentTarget.style.borderColor = 'var(--text-secondary)' }}
-            onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-secondary)'; e.currentTarget.style.borderColor = 'var(--border)' }}
-          >
-            {theme === 'dark' ? '☀️' : '🌙'}
-            <span style={{ fontSize: '12px', fontWeight: 500 }}>
-              {theme === 'dark' ? 'Sky' : 'Dark'}
-            </span>
+        <div className="side-foot">
+          <button className="theme-toggle" onClick={toggleTheme}
+            title={theme === 'dark' ? 'Switch to Sky mode' : 'Switch to Files (dark) mode'}>
+            {theme === 'dark' ? (
+              <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="4.2" /><path d="M12 3v2.4M12 18.6V21M3 12h2.4M18.6 12H21M5.6 5.6l1.7 1.7M16.7 16.7l1.7 1.7M18.4 5.6l-1.7 1.7M7.3 16.7l-1.7 1.7" /></svg>
+            ) : (
+              <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M20 14.5A8.5 8.5 0 1 1 9.5 4a6.6 6.6 0 0 0 10.5 10.5z" /></svg>
+            )}
+            <span className="nav-txt">{theme === 'dark' ? 'Sky mode' : 'Files mode'}</span>
           </button>
 
-          <a href="https://github.com/SilverCityIndigo" target="_blank" rel="noreferrer"
-            style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-secondary)', textDecoration: 'none', fontSize: '13px', transition: 'color 0.15s' }}
-            onMouseEnter={e => e.currentTarget.style.color = 'var(--text)'}
-            onMouseLeave={e => e.currentTarget.style.color = 'var(--text-secondary)'}>
-            <svg height="20" width="20" viewBox="0 0 16 16" fill="currentColor">
-              <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
-            </svg>
-            SilverCityIndigo
+          <a className="side-user" href="https://github.com/SilverCityIndigo" target="_blank" rel="noreferrer" title="SilverCityIndigo on GitHub">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 0 0-3.16 19.49c.5.09.68-.22.68-.48l-.01-1.7c-2.78.6-3.37-1.34-3.37-1.34-.45-1.16-1.11-1.47-1.11-1.47-.9-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.9 1.53 2.36 1.09 2.93.83.09-.65.35-1.09.63-1.34-2.22-.25-4.55-1.11-4.55-4.94 0-1.09.39-1.98 1.03-2.68-.1-.25-.45-1.27.1-2.65 0 0 .84-.27 2.75 1.02a9.6 9.6 0 0 1 5 0c1.91-1.29 2.75-1.02 2.75-1.02.55 1.38.2 2.4.1 2.65.64.7 1.03 1.59 1.03 2.68 0 3.84-2.34 4.68-4.57 4.93.36.31.68.92.68 1.85l-.01 2.75c0 .27.18.58.69.48A10 10 0 0 0 12 2Z" /></svg>
+            <span className="nav-txt">SilverCityIndigo</span>
           </a>
-        </div>
-      </nav>
 
-      <div style={{ padding: '24px' }}>
-        {page === 'players'       && <Players onAnalytics={goToAnalytics} />}
-        {page === 'transfers'     && <Transfers sharedTeamId={sharedTeamId} setSharedTeamId={setSharedTeamId} sharedSquadData={sharedSquadData} setSharedSquadData={setSharedSquadData} />}
-        {page === 'captain'       && <Captain sharedTeamId={sharedTeamId} setSharedTeamId={setSharedTeamId} sharedSquadData={sharedSquadData} setSharedSquadData={setSharedSquadData} />}
-        {page === 'differentials' && <Differentials />}
-        {page === 'pricechanges'  && <PriceChanges />}
-        {page === 'chips'         && <ChipAdvisor sharedTeamId={sharedTeamId} setSharedTeamId={setSharedTeamId} sharedSquadData={sharedSquadData} setSharedSquadData={setSharedSquadData} />}
-        {page === 'analytics'     && <Analytics initialPlayer={analyticsPlayer} />}
-      </div>
+          <button className="collapse-btn" onClick={() => setCollapsed(c => !c)} title={collapsed ? 'Expand' : 'Collapse'}>
+            <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M15 6l-6 6 6 6" /></svg>
+            <span className="nav-txt">Collapse</span>
+          </button>
+        </div>
+      </aside>
+
+      <main className="main">
+        <div className="page">
+          {page === 'players'       && <Players onAnalytics={goToAnalytics} />}
+          {page === 'transfers'     && <Transfers sharedTeamId={sharedTeamId} setSharedTeamId={setSharedTeamId} sharedSquadData={sharedSquadData} setSharedSquadData={setSharedSquadData} />}
+          {page === 'captain'       && <Captain sharedTeamId={sharedTeamId} setSharedTeamId={setSharedTeamId} sharedSquadData={sharedSquadData} setSharedSquadData={setSharedSquadData} />}
+          {page === 'differentials' && <Differentials />}
+          {page === 'pricechanges'  && <PriceChanges />}
+          {page === 'chips'         && <ChipAdvisor sharedTeamId={sharedTeamId} setSharedTeamId={setSharedTeamId} sharedSquadData={sharedSquadData} setSharedSquadData={setSharedSquadData} />}
+          {page === 'analytics'     && <Analytics initialPlayer={analyticsPlayer} />}
+        </div>
+      </main>
     </div>
   )
-}
-
-function navBtn(active) {
-  return {
-    background: active ? '#00ff87' : 'transparent',
-    color: active ? '#000' : 'var(--text)',
-    border: '1px solid #00ff87',
-    borderRadius: '6px',
-    padding: '6px 14px',
-    cursor: 'pointer',
-    fontWeight: active ? 'bold' : 'normal',
-    fontSize: '14px',
-    whiteSpace: 'nowrap'
-  }
 }
