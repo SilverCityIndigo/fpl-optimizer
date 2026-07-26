@@ -4,69 +4,88 @@ import {
   LinearScale, PointElement, LineElement, Tooltip as ChartTooltip,
   Legend, CategoryScale, Filler, BarElement
 } from 'chart.js'
-import { Scatter, Line, Bar } from 'react-chartjs-2'
-import { getPlayers, getPlayerHistory, getFdrTable } from '../api'
+import { Scatter, Line } from 'react-chartjs-2'
+import { getPlayers, getPlayerHistory } from '../api'
 
 ChartJS.register(LinearScale, PointElement, LineElement, ChartTooltip, Legend, CategoryScale, Filler, BarElement)
 
 const POSITIONS = ['All', 'GKP', 'DEF', 'MID', 'FWD']
-const POS_COLORS = { GKP: '#f5a623', DEF: '#00b2ff', MID: '#00ff87', FWD: '#ff4444' }
+// DOM (CSS) colours — safe to use as CSS var strings in HTML/inline styles
+const POS_COLORS = { GKP: 'var(--gold)', DEF: 'var(--info)', MID: 'var(--accent)', FWD: 'var(--danger)' }
+const PHOTO = code => `https://resources.premierleague.com/premierleague/photos/players/110x140/p${code}.png`
 
-function ptColor(pts) {
-  if (pts >= 6) return '#00ff87'
-  if (pts >= 4) return '#ffd700'
-  return 'var(--text)'
+// ─── Theme colour resolution for Chart.js (canvas can't read CSS vars) ───────
+function readThemeColors() {
+  const s = getComputedStyle(document.documentElement)
+  const g = (n, fb) => (s.getPropertyValue(n).trim() || fb)
+  return {
+    text:   g('--text', '#e8eef8'),
+    dim:    g('--text-secondary', '#93a2bd'),
+    muted:  g('--text-muted', '#61718f'),
+    grid:   g('--grid', '#212c44'),
+    line:   g('--line', '#263049'),
+    surface:g('--surface', '#111726'),
+    accent: g('--accent', '#31e0a4'),
+    gold:   g('--gold', '#f5b13d'),
+    danger: g('--danger', '#ff5d6c'),
+    info:   g('--info', '#5aa2ff'),
+  }
+}
+function useThemeColors() {
+  const [c, setC] = useState(readThemeColors)
+  useEffect(() => {
+    const obs = new MutationObserver(() => setC(readThemeColors()))
+    obs.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
+    return () => obs.disconnect()
+  }, [])
+  return c
+}
+function alpha(hex, a) {
+  let h = (hex || '').replace('#', '')
+  if (h.length === 3) h = h.split('').map(x => x + x).join('')
+  if (h.length !== 6) return hex
+  const n = parseInt(h, 16)
+  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`
+}
+// shared Chart.js option scaffolding built from resolved colours
+function baseScales(C, xTitle, yTitle, xRange, yRange) {
+  const axis = (title, range) => ({
+    title: title ? { display: true, text: title, color: C.dim, font: { size: 12, weight: '600' } } : undefined,
+    ticks: { color: C.muted, font: { size: 11 } },
+    grid: { color: C.grid, drawTicks: false },
+    border: { color: C.line },
+    ...(range || {}),
+  })
+  return { x: axis(xTitle, xRange), y: axis(yTitle, yRange) }
+}
+function baseTooltip(C) {
+  return {
+    backgroundColor: C.surface, borderColor: C.line, borderWidth: 1,
+    titleColor: C.text, bodyColor: C.dim, padding: 10, cornerRadius: 8, displayColors: false,
+  }
 }
 
-const TH = ({ children }) => (
-  <th style={{ padding: '8px 10px', textAlign: 'left', color: 'var(--text)', fontWeight: 'bold', fontSize: '12px', borderBottom: '1px solid var(--border)' }}>
-    {children}
-  </th>
-)
-
-const TD = ({ children, color = 'var(--text-secondary)', bold = false }) => (
-  <td style={{ padding: '7px 10px', color, fontWeight: bold ? 'bold' : 'normal' }}>{children}</td>
-)
-
 // ─── Shared Player Search ────────────────────────────────────────────────────
-function PlayerSearch({ players, onSelect, placeholder = 'Search player...', excludeId = null }) {
+function PlayerSearch({ players, onSelect, placeholder = 'Search player…', excludeId = null }) {
   const [search, setSearch] = useState('')
   const filtered = players
     .filter(p => p.web_name.toLowerCase().includes(search.toLowerCase()))
     .filter(p => p.id !== excludeId)
-    .slice(0, 30)
+    .slice(0, 24)
 
   return (
-    <div style={{ position: 'relative', maxWidth: '320px' }}>
-      <input
-        placeholder={placeholder}
-        value={search}
-        onChange={e => setSearch(e.target.value)}
-        style={{
-          width: '100%', padding: '10px 14px', borderRadius: '8px',
-          border: '1px solid var(--border)', background: 'var(--bg)',
-          color: 'var(--text)', fontSize: '14px', outline: 'none', boxSizing: 'border-box'
-        }}
-      />
+    <div className="psearch">
+      <div className="search-box">
+        <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.7" strokeLinecap="round"><circle cx="11" cy="11" r="6.5" /><path d="m20 20-3.6-3.6" /></svg>
+        <input placeholder={placeholder} value={search} onChange={e => setSearch(e.target.value)} />
+      </div>
       {search && filtered.length > 0 && (
-        <div style={{
-          position: 'absolute', zIndex: 200, background: 'var(--bg-card)',
-          border: '1px solid var(--border)', borderRadius: '8px', marginTop: '4px',
-          maxHeight: '240px', overflowY: 'auto', width: '100%'
-        }}>
+        <div className="psearch-menu">
           {filtered.map(p => (
-            <div key={p.id}
-              onClick={() => { onSelect(p); setSearch('') }}
-              style={{ padding: '10px 14px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px', borderBottom: '1px solid var(--bg)' }}
-              onMouseEnter={e => e.currentTarget.style.background = 'var(--bg)'}
-              onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-              {p.code && (
-                <img src={`https://resources.premierleague.com/premierleague/photos/players/110x140/p${p.code}.png`}
-                  style={{ height: '32px', objectFit: 'contain' }}
-                  onError={e => e.target.style.display = 'none'} />
-              )}
+            <div key={p.id} className="psearch-item" onClick={() => { onSelect(p); setSearch('') }}>
+              {p.code && <img src={PHOTO(p.code)} style={{ height: '30px', objectFit: 'contain' }} onError={e => { e.target.style.display = 'none' }} alt="" />}
               <div>
-                <div style={{ fontWeight: 'bold', fontSize: '14px', color: 'var(--text)' }}>{p.web_name}</div>
+                <div style={{ fontWeight: 700, fontSize: '13.5px', color: 'var(--text)' }}>{p.web_name}</div>
                 <div style={{ color: 'var(--text-secondary)', fontSize: '11px' }}>{p.team_name} · {p.position} · £{p.price}m</div>
               </div>
             </div>
@@ -77,1124 +96,340 @@ function PlayerSearch({ players, onSelect, placeholder = 'Search player...', exc
   )
 }
 
-// ─── Position-aware GW Breakdown Table ──────────────────────────────────────
-function GWTable({ history, position }) {
-  if (!history.length) return null
-
-  const isGKP = position === 'GKP'
-  const isDEF = position === 'DEF'
-  const isMID = position === 'MID'
-  const isFWD = position === 'FWD'
-  const hasAttack = !isGKP
-
-  // Defcon thresholds: DEF=10, MID/FWD=12
-  const defconThreshold = isDEF ? 10 : 12
-
+function PosFilter({ value, onChange }) {
   return (
-    <div>
-      <div style={{ color: 'var(--text)', fontSize: '13px', fontWeight: 'bold', marginBottom: '10px' }}>Gameweek Breakdown</div>
-      <div style={{ overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
-          <thead>
-            <tr>
-              <TH>GW</TH>
-              <TH>Mins</TH>
-              <TH>Pts</TH>
-              {isGKP && <><TH>Saves</TH><TH>xGC</TH><TH>CS</TH></>}
-              {hasAttack && <><TH>Goals</TH><TH>Assists</TH></>}
-              {(isDEF || isMID) && <TH>CS</TH>}
-              {hasAttack && <><TH>xG</TH><TH>xA</TH></>}
-              {(isDEF || isMID) && <TH>Defcon</TH>}
-              {isDEF && <TH>CBI</TH>}
-              {isMID && <TH>Recoveries</TH>}
-              <TH>Bonus</TH>
-              <TH>BPS</TH>
-              <TH>ICT</TH>
-            </tr>
-          </thead>
-          <tbody>
-            {[...history].reverse().slice(0, 10).map(h => {
-              const xg = parseFloat(h.expected_goals || 0)
-              const xa = parseFloat(h.expected_assists || 0)
-              const xgc = parseFloat(h.expected_goals_conceded || 0)
-              const defcon = parseInt(h.defensive_contribution || 0)
-              const cbi = parseInt(h.clearances_blocks_interceptions || 0)
-              const recoveries = parseInt(h.recoveries || 0)
-              const saves = parseInt(h.saves || 0)
-              const hitDefcon = defcon >= defconThreshold
+    <div className="seg">
+      {POSITIONS.map(pos => (
+        <button key={pos} className={value === pos ? 'on' : ''} onClick={() => onChange(pos)}>{pos}</button>
+      ))}
+    </div>
+  )
+}
 
-              return (
-                <tr key={h.gameweek} style={{ borderBottom: '1px solid var(--bg-card)' }}
-                  onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-card)'}
-                  onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                  <TD color="#aaa">GW{h.gameweek}</TD>
-                  <TD color={h.minutes === 0 ? '#ff4444' : 'var(--text)'}>{h.minutes}'</TD>
-                  <TD color={ptColor(h.total_points)} bold>{h.total_points}</TD>
+function CompareRow({ players, compare, onCompare, onClear, excludeId }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+      <span className="hint">Compare with</span>
+      <PlayerSearch players={players} onSelect={onCompare} placeholder="Search player…" excludeId={excludeId} />
+      {compare && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <span className="dot" style={{ background: 'var(--gold)', width: '10px', height: '10px' }} />
+          <span style={{ color: 'var(--text)', fontSize: '13px', fontWeight: 700 }}>{compare.web_name}</span>
+          <button onClick={onClear} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '17px', lineHeight: 1 }}>×</button>
+        </div>
+      )}
+    </div>
+  )
+}
 
-                  {isGKP && <>
-                    <TD color={saves > 0 ? '#00b2ff' : 'var(--text-muted)'}>{saves || '—'}</TD>
-                    <TD color={xgc > 1 ? '#ff4444' : 'var(--text-secondary)'}>{xgc > 0 ? xgc.toFixed(2) : '—'}</TD>
-                    <TD color={h.clean_sheets > 0 ? '#00ff87' : 'var(--text-muted)'}>{h.clean_sheets > 0 ? '✓' : '—'}</TD>
-                  </>}
+const CHART_H = { height: 'min(56vh, 460px)' }
 
-                  {hasAttack && <>
-                    <TD color={h.goals_scored > 0 ? '#ffd700' : 'var(--text-muted)'}>{h.goals_scored || '—'}</TD>
-                    <TD color={h.assists > 0 ? '#7fff00' : 'var(--text-muted)'}>{h.assists || '—'}</TD>
-                  </>}
-
-                  {(isDEF || isMID) && (
-                    <TD color={h.clean_sheets > 0 ? '#00ff87' : 'var(--text-muted)'}>{h.clean_sheets > 0 ? '✓' : '—'}</TD>
-                  )}
-
-                  {hasAttack && <>
-                    <TD color={xg > 0.3 ? '#00b2ff' : 'var(--text-secondary)'}>{xg > 0 ? xg.toFixed(2) : '—'}</TD>
-                    <TD color={xa > 0.2 ? '#00b2ff' : 'var(--text-secondary)'}>{xa > 0 ? xa.toFixed(2) : '—'}</TD>
-                  </>}
-
-                  {(isDEF || isMID) && (
-                    <TD color={hitDefcon ? '#00ff87' : defcon > 0 ? 'var(--text-secondary)' : 'var(--text-muted)'}>
-                      {defcon > 0 ? `${defcon}${hitDefcon ? ' ✓' : ''}` : '—'}
-                    </TD>
-                  )}
-
-                  {isDEF && <TD color={cbi > 3 ? '#00b2ff' : 'var(--text-secondary)'}>{cbi || '—'}</TD>}
-                  {isMID && <TD color={recoveries > 5 ? '#00b2ff' : 'var(--text-secondary)'}>{recoveries || '—'}</TD>}
-
-                  <TD color={h.bonus > 0 ? '#00ff87' : 'var(--text-muted)'}>{h.bonus || '—'}</TD>
-                  <TD>{h.bps ?? '—'}</TD>
-                  <TD>{h.ict_index != null ? parseFloat(h.ict_index).toFixed(1) : '—'}</TD>
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
-        {history.length > 10 && (
-          <div style={{ color: 'var(--text-muted)', fontSize: '11px', marginTop: '6px', textAlign: 'right' }}>Showing last 10 GWs</div>
-        )}
+// ─── Player detail header (shared by xG + timeline) ─────────────────────────
+function PlayerHead({ selected, tiles }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: '14px', marginBottom: '14px', flexWrap: 'wrap' }}>
+      {selected.code && <img src={PHOTO(selected.code)} style={{ height: '56px', objectFit: 'contain' }} onError={e => { e.target.style.display = 'none' }} alt="" />}
+      <div style={{ flex: 1, minWidth: '150px' }}>
+        <div style={{ fontWeight: 700, fontSize: '17px' }}>{selected.web_name}</div>
+        <div style={{ color: 'var(--text-secondary)', fontSize: '12.5px' }}>{selected.team_name} · {selected.position} · £{selected.price}m</div>
+      </div>
+      <div className="tiles">
+        {tiles.map(([k, v, color]) => (
+          <div key={k} className="tile"><div className="k">{k}</div><div className="v" style={color ? { color } : undefined}>{v}</div></div>
+        ))}
       </div>
     </div>
   )
 }
 
-// ─── Positional Comparison Bar ───────────────────────────────────────────────
-function PositionalComparison({ selected, players }) {
-  if (!selected) return null
-
-  const peers = players.filter(p =>
-    p.position === selected.position &&
-    p.minutes > 180 &&
-    p.xg_per90 != null
-  )
-
-  if (peers.length === 0) return null
-
-  const avg = (field) => peers.reduce((s, p) => s + parseFloat(p[field] || 0), 0) / peers.length
-
-  const avgXG = avg('xg_per90')
-  const avgXA = avg('xa_per90')
-  const avgXGI = avg('xgi_per90')
-
-  const playerXG = parseFloat(selected.xg_per90 || 0)
-  const playerXA = parseFloat(selected.xa_per90 || 0)
-  const playerXGI = parseFloat(selected.xgi_per90 || 0)
-
-  const metrics = [
-    { label: 'xG/90', player: playerXG, avg: avgXG, color: '#00b2ff' },
-    { label: 'xA/90', player: playerXA, avg: avgXA, color: '#7fff00' },
-    { label: 'xGI/90', player: playerXGI, avg: avgXGI, color: '#00ff87' },
-  ]
-
-  const maxVal = Math.max(...metrics.map(m => Math.max(m.player, m.avg))) * 1.2 || 0.1
-
-  return (
-    <div style={{ marginBottom: '20px' }}>
-      <div style={{ color: 'var(--text)', fontSize: '13px', fontWeight: 'bold', marginBottom: '12px' }}>
-        vs {selected.position} Average ({peers.length} players with 180+ mins)
-      </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-        {metrics.map(m => {
-          const playerPct = (m.player / maxVal) * 100
-          const avgPct = (m.avg / maxVal) * 100
-          const isAbove = m.player >= m.avg
-
-          return (
-            <div key={m.label}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-                <span style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>{m.label}</span>
-                <span style={{ fontSize: '12px' }}>
-                  <span style={{ color: m.color, fontWeight: 'bold' }}>{m.player.toFixed(3)}</span>
-                  <span style={{ color: 'var(--text-muted)' }}> vs avg </span>
-                  <span style={{ color: 'var(--text-secondary)' }}>{m.avg.toFixed(3)}</span>
-                  <span style={{ color: isAbove ? '#00ff87' : '#ff4444', marginLeft: '6px', fontWeight: 'bold' }}>
-                    {isAbove ? '▲' : '▼'} {Math.abs(m.player - m.avg).toFixed(3)}
-                  </span>
-                </span>
-              </div>
-              <div style={{ position: 'relative', height: '20px', background: 'var(--bg)', borderRadius: '4px', overflow: 'hidden' }}>
-                {/* Avg marker */}
-                <div style={{
-                  position: 'absolute', left: `${avgPct}%`, top: 0, bottom: 0,
-                  width: '2px', background: 'var(--text-muted)', zIndex: 2
-                }} />
-                {/* Player bar */}
-                <div style={{
-                  position: 'absolute', left: 0, top: '3px', bottom: '3px',
-                  width: `${playerPct}%`,
-                  background: m.color,
-                  borderRadius: '3px',
-                  opacity: 0.85,
-                  transition: 'width 0.3s ease'
-                }} />
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '2px' }}>
-                <span style={{ color: 'var(--text-muted)', fontSize: '10px' }}>│ avg</span>
-              </div>
-            </div>
-          )
-        })}
-      </div>
-    </div>
-  )
-}
-
-// ─── xG vs Goals Panel ──────────────────────────────────────────────────────
+// ─── xG vs Goals ─────────────────────────────────────────────────────────────
 function XGPanel({ players, selectedPlayer, onSelectPlayer }) {
+  const C = useThemeColors()
   const [history, setHistory] = useState([])
-  const [loading, setLoading] = useState(false)
   const [compare, setCompare] = useState(null)
-  const [compareHistory, setCompareHistory] = useState([])
   const [position, setPosition] = useState('All')
-  const chartRef = useRef(null)
-
   const selected = selectedPlayer
 
   useEffect(() => {
     if (!selected) return
-    setLoading(true)
-    getPlayerHistory(selected.id)
-      .then(res => setHistory(res.data))
-      .catch(() => setHistory([]))
-      .finally(() => setLoading(false))
+    getPlayerHistory(selected.id).then(res => setHistory(res.data)).catch(() => setHistory([]))
   }, [selected?.id])
-
-  async function selectCompare(player) {
-    setCompare(player)
-    try {
-      const res = await getPlayerHistory(player.id)
-      setCompareHistory(res.data)
-    } catch { setCompareHistory([]) }
-  }
 
   const filtered = players
     .filter(p => position === 'All' || p.position === position)
     .filter(p => p.xg_per90 != null && p.goals_scored != null && p.minutes > 180)
-    .map(p => ({
-      ...p,
-      xg_p90: parseFloat(p.xg_per90 || 0),
-      goals_p90: parseFloat(((p.goals_scored / p.minutes) * 90).toFixed(3)),
-    }))
+    .map(p => ({ ...p, xg_p90: parseFloat(p.xg_per90 || 0), goals_p90: parseFloat(((p.goals_scored / p.minutes) * 90).toFixed(3)) }))
 
   const maxVal = Math.max(...filtered.map(p => Math.max(p.xg_p90, p.goals_p90)), 0.5) + 0.2
+  const bg = filtered.filter(p => p.id !== selected?.id && p.id !== compare?.id)
+  const selDot = filtered.find(p => p.id === selected?.id)
+  const cmpDot = filtered.find(p => p.id === compare?.id)
 
-  const bgDots = filtered.filter(p => p.id !== selected?.id && p.id !== compare?.id)
-  const selectedDot = filtered.find(p => p.id === selected?.id)
-  const compareDot = filtered.find(p => p.id === compare?.id)
-
-  const dotColor = (dot) => {
-    if (!dot) return 'var(--text)'
-    const diff = dot.goals_p90 - dot.xg_p90
-    if (diff >= 0.08) return '#00ff87'
-    if (diff <= -0.08) return '#ff8800'
-    return '#ffffff'
-  }
-
-  const scatterData = {
+  const data = {
     datasets: [
-      {
-        label: 'Players',
-        data: bgDots.map(p => ({ x: p.xg_p90, y: p.goals_p90, player: p })),
-        backgroundColor: 'rgba(255,255,255,0.12)',
-        pointRadius: 4,
-        pointHoverRadius: 6,
-      },
-      ...(selectedDot ? [{
-        label: selected.web_name,
-        data: [{ x: selectedDot.xg_p90, y: selectedDot.goals_p90, player: selectedDot }],
-        backgroundColor: dotColor(selectedDot),
-        pointRadius: 10,
-        pointHoverRadius: 13,
-      }] : []),
-      ...(compareDot ? [{
-        label: compare.web_name,
-        data: [{ x: compareDot.xg_p90, y: compareDot.goals_p90, player: compareDot }],
-        backgroundColor: dotColor(compareDot),
-        pointRadius: 10,
-        pointHoverRadius: 13,
-      }] : []),
-      {
-        label: 'xG = Goals',
-        data: [{ x: 0, y: 0 }, { x: maxVal, y: maxVal }],
-        type: 'line',
-        borderColor: '#3a4050',
-        borderDash: [6, 4],
-        borderWidth: 2,
-        pointRadius: 0,
-        fill: false,
-      }
+      { label: 'Players', data: bg.map(p => ({ x: p.xg_p90, y: p.goals_p90, player: p })), backgroundColor: alpha(C.muted, 0.5), pointRadius: 4, pointHoverRadius: 6 },
+      ...(selDot ? [{ label: selected.web_name, data: [{ x: selDot.xg_p90, y: selDot.goals_p90, player: selDot }], backgroundColor: C.accent, borderColor: C.surface, borderWidth: 2, pointRadius: 9, pointHoverRadius: 12 }] : []),
+      ...(cmpDot ? [{ label: compare.web_name, data: [{ x: cmpDot.xg_p90, y: cmpDot.goals_p90, player: cmpDot }], backgroundColor: C.gold, borderColor: C.surface, borderWidth: 2, pointRadius: 9, pointHoverRadius: 12 }] : []),
+      { label: 'xG = Goals', type: 'line', data: [{ x: 0, y: 0 }, { x: maxVal, y: maxVal }], borderColor: alpha(C.muted, 0.6), borderDash: [6, 5], borderWidth: 1.5, pointRadius: 0, fill: false },
     ]
   }
-
-  const scatterOptions = {
+  const options = {
     responsive: true, maintainAspectRatio: false, animation: false,
-    onClick: (event, elements) => {
-      if (!elements.length) return
-      const el = elements[0]
-      const point = scatterData.datasets[el.datasetIndex].data[el.index]
-      if (point?.player) onSelectPlayer(point.player)
-    },
+    onClick: (e, els) => { if (els.length) { const pt = data.datasets[els[0].datasetIndex].data[els[0].index]; if (pt?.player) onSelectPlayer(pt.player) } },
     plugins: {
       legend: { display: false },
-      tooltip: {
-        callbacks: {
-          label: (ctx) => {
-            const p = ctx.raw?.player
-            if (!p) return ''
-            const diff = (p.goals_p90 - p.xg_p90).toFixed(3)
-            const sign = parseFloat(diff) >= 0 ? '+' : ''
-            return [
-              `${p.web_name} (${p.team_name})`,
-              `Goals/90: ${p.goals_p90.toFixed(3)}   xG/90: ${p.xg_p90.toFixed(3)}`,
-              `Diff: ${sign}${diff}`,
-            ]
-          }
-        },
-        backgroundColor: 'var(--bg)', borderColor: 'var(--border)', borderWidth: 1,
-        titleColor: 'var(--text)', bodyColor: 'var(--text-secondary)', padding: 12,
-      }
+      tooltip: { ...baseTooltip(C), callbacks: { label: ctx => { const p = ctx.raw?.player; if (!p) return ''; const d = (p.goals_p90 - p.xg_p90).toFixed(2); return [`${p.web_name} (${p.team_name})`, `Goals/90 ${p.goals_p90.toFixed(2)} · xG/90 ${p.xg_p90.toFixed(2)}`, `Diff ${parseFloat(d) >= 0 ? '+' : ''}${d}`] } } },
     },
-    scales: {
-      x: {
-        title: { display: true, text: 'Expected Goals per 90 (xG/90)', color: 'var(--text-secondary)', font: { size: 13 } },
-        ticks: { color: 'var(--text-secondary)' }, grid: { color: 'var(--grid)' }, min: 0, max: maxVal,
-      },
-      y: {
-        title: { display: true, text: 'Actual Goals per 90', color: 'var(--text-secondary)', font: { size: 13 } },
-        ticks: { color: 'var(--text-secondary)' }, grid: { color: 'var(--grid)' }, min: 0, max: maxVal,
-      }
-    }
+    scales: baseScales(C, 'Expected Goals / 90', 'Actual Goals / 90', { min: 0, max: maxVal }, { min: 0, max: maxVal }),
   }
 
   const seasonXG = history.reduce((s, h) => s + parseFloat(h.expected_goals || 0), 0)
-  const seasonXA = history.reduce((s, h) => s + parseFloat(h.expected_assists || 0), 0)
   const actualGoals = history.reduce((s, h) => s + (h.goals_scored || 0), 0)
   const xgDiff = (actualGoals - seasonXG).toFixed(2)
-  const per90Diff = selectedDot ? (selectedDot.goals_p90 - selectedDot.xg_p90) : 0
 
   return (
     <div>
-      <div style={{ display: 'flex', gap: '12px', marginBottom: '20px', flexWrap: 'wrap', alignItems: 'center' }}>
-        <PlayerSearch players={players} onSelect={onSelectPlayer} placeholder="Search player to highlight..." />
-        <div style={{ display: 'flex', gap: '6px' }}>
-          {POSITIONS.map(pos => (
-            <button key={pos} onClick={() => setPosition(pos)} style={{
-              padding: '5px 12px', borderRadius: '6px',
-              border: `1px solid ${pos === 'All' ? '#00ff87' : POS_COLORS[pos] || '#00ff87'}`,
-              background: position === pos ? (POS_COLORS[pos] || '#00ff87') : 'transparent',
-              color: position === pos ? '#000' : 'var(--text)',
-              cursor: 'pointer', fontWeight: position === pos ? 'bold' : 'normal', fontSize: '12px'
-            }}>{pos}</button>
-          ))}
-        </div>
-        <span style={{ color: 'var(--text-muted)', fontSize: '12px' }}>{filtered.length} players (180+ mins) · click any dot</span>
+      <div className="chart-controls">
+        <PlayerSearch players={players} onSelect={onSelectPlayer} placeholder="Highlight a player…" />
+        <PosFilter value={position} onChange={setPosition} />
+        <span className="hint">{filtered.length} players · 180+ mins · click any dot</span>
       </div>
-
-      <div style={{ height: '420px', marginBottom: '12px' }}>
-        <Scatter ref={chartRef} data={scatterData} options={scatterOptions} />
-      </div>
-
-      <div style={{ display: 'flex', gap: '16px', justifyContent: 'center', marginBottom: '24px' }}>
-        <span style={{ fontSize: '12px', color: '#00ff87' }}>● Green = overperforming xG</span>
-        <span style={{ fontSize: '12px', color: 'var(--text)' }}>● White = in line with xG</span>
-        <span style={{ fontSize: '12px', color: '#ff8800' }}>● Orange = due a return</span>
+      <div style={CHART_H}><Scatter data={data} options={options} /></div>
+      <div className="chart-legend">
+        <span><i style={{ background: 'var(--accent)' }} /> Overperforming xG</span>
+        <span><i style={{ background: 'var(--text-muted)' }} /> In line</span>
+        <span><i style={{ background: 'var(--gold)' }} /> Selected / compare</span>
       </div>
 
       {selected && (
-        <div style={{ background: 'var(--bg)', borderRadius: '12px', padding: '20px', border: `1px solid ${POS_COLORS[selected.position] || '#00ff87'}` }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '16px', flexWrap: 'wrap' }}>
-            {selected.code && (
-              <img src={`https://resources.premierleague.com/premierleague/photos/players/110x140/p${selected.code}.png`}
-                style={{ height: '60px', objectFit: 'contain' }}
-                onError={e => e.target.style.display = 'none'} />
-            )}
-            <div style={{ flex: 1 }}>
-              <div style={{ fontWeight: 'bold', fontSize: '18px' }}>{selected.web_name}</div>
-              <div style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>{selected.team_name} · {selected.position} · £{selected.price}m</div>
-            </div>
-            {history.length > 0 && (
-              <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-                {[
-                  ['Goals', actualGoals, '#ffd700'],
-                  ['xG (season)', seasonXG.toFixed(2), '#00b2ff'],
-                  ['xG Diff', `${parseFloat(xgDiff) >= 0 ? '+' : ''}${xgDiff}`, parseFloat(xgDiff) >= 0 ? '#00ff87' : '#ff4444'],
-                  ['xA (season)', seasonXA.toFixed(2), '#00b2ff'],
-                  ['xG/90', parseFloat(selected.xg_per90 || 0).toFixed(3), 'var(--text-secondary)'],
-                  ['xA/90', parseFloat(selected.xa_per90 || 0).toFixed(3), 'var(--text-secondary)'],
-                ].map(([label, val, color]) => (
-                  <div key={label} style={{ background: 'var(--bg-card)', borderRadius: '8px', padding: '8px 14px', textAlign: 'center' }}>
-                    <div style={{ color: 'var(--text-secondary)', fontSize: '10px', marginBottom: '2px' }}>{label}</div>
-                    <div style={{ color, fontWeight: 'bold', fontSize: '15px' }}>{val}</div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {history.length > 0 && (
-            <div style={{ marginBottom: '16px' }}>
-              {per90Diff >= 0.08 ? (
-                <span style={{ background: 'rgba(0,255,135,0.1)', border: '1px solid #00ff87', borderRadius: '6px', padding: '6px 12px', fontSize: '13px', color: '#00ff87' }}>
-                  🔥 Overperforming xG by {per90Diff.toFixed(3)} goals/90 — form may regress
-                </span>
-              ) : per90Diff <= -0.08 ? (
-                <span style={{ background: 'rgba(255,136,0,0.1)', border: '1px solid #ff8800', borderRadius: '6px', padding: '6px 12px', fontSize: '13px', color: '#ff8800' }}>
-                  ⏳ Underperforming xG by {Math.abs(per90Diff).toFixed(3)} goals/90 — return incoming
-                </span>
-              ) : (
-                <span style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid var(--border)', borderRadius: '6px', padding: '6px 12px', fontSize: '13px', color: 'var(--text-secondary)' }}>
-                  ✅ Performing in line with xG
-                </span>
-              )}
-            </div>
-          )}
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px', flexWrap: 'wrap' }}>
-            <span style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>Compare with:</span>
-            <PlayerSearch players={players} onSelect={selectCompare} placeholder="Search player..." excludeId={selected.id} />
-            {compare && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <div style={{ width: '12px', height: '3px', background: '#ff8800', borderRadius: '2px' }} />
-                <span style={{ color: 'var(--text)', fontSize: '13px', fontWeight: 'bold' }}>{compare.web_name}</span>
-                <button onClick={() => { setCompare(null); setCompareHistory([]) }}
-                  style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '16px', lineHeight: 1 }}>×</button>
-              </div>
-            )}
-          </div>
-
-          {/* Positional comparison bar replaces the redundant table */}
-          <PositionalComparison selected={selected} players={players} />
+        <div className="panel panel-pad" style={{ marginTop: '14px' }}>
+          <PlayerHead selected={selected} tiles={[
+            ['Goals', actualGoals, 'var(--gold)'],
+            ['Season xG', seasonXG.toFixed(1), 'var(--info)'],
+            ['xG Diff', `${parseFloat(xgDiff) >= 0 ? '+' : ''}${xgDiff}`, parseFloat(xgDiff) >= 0 ? 'var(--accent)' : 'var(--danger)'],
+            ['xG/90', parseFloat(selected.xg_per90 || 0).toFixed(2), null],
+            ['xA/90', parseFloat(selected.xa_per90 || 0).toFixed(2), null],
+          ]} />
+          <CompareRow players={players} compare={compare} onCompare={setCompare} onClear={() => setCompare(null)} excludeId={selected.id} />
         </div>
       )}
     </div>
   )
 }
 
-// ─── Form Timeline Panel ─────────────────────────────────────────────────────
+// ─── Form Timeline ───────────────────────────────────────────────────────────
 function FormTimeline({ players, selectedPlayer, onSelectPlayer }) {
+  const C = useThemeColors()
   const [history, setHistory] = useState([])
   const [loading, setLoading] = useState(false)
   const [compare, setCompare] = useState(null)
   const [compareHistory, setCompareHistory] = useState([])
-
   const selected = selectedPlayer
 
   useEffect(() => {
     if (!selected) return
     setLoading(true)
-    getPlayerHistory(selected.id)
-      .then(res => setHistory(res.data))
-      .catch(() => setHistory([]))
-      .finally(() => setLoading(false))
+    getPlayerHistory(selected.id).then(res => setHistory(res.data)).catch(() => setHistory([])).finally(() => setLoading(false))
   }, [selected?.id])
 
   async function selectCompare(player) {
     setCompare(player)
-    try {
-      const res = await getPlayerHistory(player.id)
-      setCompareHistory(res.data)
-    } catch { setCompareHistory([]) }
+    try { const res = await getPlayerHistory(player.id); setCompareHistory(res.data) } catch { setCompareHistory([]) }
   }
 
-  // Only count gameweeks the player actually appeared in (minutes > 0). This
-  // matches FPL's own Pts/Match — blanks, injuries, and full benchings would
-  // otherwise drag the average down and misrepresent the player.
-  const playedGWs = history.filter(h => (h.minutes || 0) > 0)
-  const avgPts = playedGWs.length
-    ? (playedGWs.reduce((s, h) => s + h.total_points, 0) / playedGWs.length).toFixed(1)
-    : null
-  const bestGW = history.length
-    ? history.reduce((best, h) => h.total_points > best.total_points ? h : best, history[0])
-    : null
+  const played = history.filter(h => (h.minutes || 0) > 0)
+  const avgPts = played.length ? (played.reduce((s, h) => s + h.total_points, 0) / played.length).toFixed(1) : '—'
+  const bestGW = history.length ? history.reduce((b, h) => h.total_points > b.total_points ? h : b, history[0]) : null
 
-  const lineData = {
+  const data = {
     labels: history.map(h => `GW${h.gameweek}`),
     datasets: [
-      {
-        label: selected?.web_name || 'Player',
-        data: history.map(h => h.total_points),
-        borderColor: '#00ff87',
-        backgroundColor: 'rgba(0,255,135,0.12)',
-        borderWidth: 2.5, pointRadius: 3, pointHoverRadius: 6,
-        fill: true, tension: 0.3,
-      },
-      ...(compare && compareHistory.length > 0 ? [{
-        label: compare.web_name,
-        data: history.map(h => {
-          const match = compareHistory.find(c => c.gameweek === h.gameweek)
-          return match ? match.total_points : null
-        }),
-        borderColor: '#ff8800',
-        backgroundColor: 'rgba(255,136,0,0.08)',
-        borderWidth: 2, borderDash: [5, 3],
-        pointRadius: 3, pointHoverRadius: 5,
-        fill: true, tension: 0.3, spanGaps: false,
-      }] : [])
+      { label: selected?.web_name || 'Player', data: history.map(h => h.total_points), borderColor: C.accent, backgroundColor: alpha(C.accent, 0.12), borderWidth: 2.5, pointRadius: 2, pointHoverRadius: 6, pointBackgroundColor: C.accent, fill: true, tension: 0.32 },
+      ...(compare && compareHistory.length ? [{ label: compare.web_name, data: history.map(h => { const m = compareHistory.find(c => c.gameweek === h.gameweek); return m ? m.total_points : null }), borderColor: C.gold, backgroundColor: alpha(C.gold, 0.08), borderWidth: 2, borderDash: [5, 3], pointRadius: 2, pointHoverRadius: 5, fill: true, tension: 0.32, spanGaps: false }] : []),
     ]
   }
-
-  const lineOptions = {
+  const options = {
     responsive: true, maintainAspectRatio: false, animation: false,
     plugins: {
-      legend: { display: !!compare, labels: { color: 'var(--text-secondary)', boxWidth: 12, font: { size: 12 } } },
-      tooltip: {
-        backgroundColor: 'var(--bg)', borderColor: 'var(--border)', borderWidth: 1,
-        titleColor: 'var(--text-secondary)', bodyColor: 'var(--text)',
-        callbacks: {
-          afterBody: (items) => {
-            const h = history[items[0].dataIndex]
-            if (!h) return []
-            const lines = []
-            if (h.minutes !== undefined) lines.push(`Minutes: ${h.minutes}'`)
-            if (h.goals_scored > 0) lines.push(`Goals: ${h.goals_scored} ⚽`)
-            if (h.assists > 0) lines.push(`Assists: ${h.assists} 🅰️`)
-            if (h.bonus > 0) lines.push(`Bonus: ${h.bonus}`)
-            return lines
-          }
-        }
-      }
+      legend: { display: !!compare, labels: { color: C.dim, boxWidth: 12, font: { size: 12 } } },
+      tooltip: { ...baseTooltip(C), callbacks: { afterBody: items => { const h = history[items[0].dataIndex]; if (!h) return []; const l = []; if (h.minutes !== undefined) l.push(`Minutes ${h.minutes}'`); if (h.goals_scored > 0) l.push(`Goals ${h.goals_scored}`); if (h.assists > 0) l.push(`Assists ${h.assists}`); if (h.bonus > 0) l.push(`Bonus ${h.bonus}`); return l } } },
     },
-    scales: {
-      x: {
-        ticks: { color: 'var(--text-secondary)', font: { size: 11 } }, grid: { color: 'var(--grid)' },
-        title: { display: true, text: 'Gameweek', color: 'var(--text-muted)', font: { size: 12 } }
-      },
-      y: { ticks: { color: 'var(--text-secondary)', font: { size: 11 } }, grid: { color: 'var(--grid)' } }
-    }
+    scales: baseScales(C, 'Gameweek', null),
   }
 
   return (
     <div>
-      <div style={{ marginBottom: '16px' }}>
-        <PlayerSearch players={players} onSelect={onSelectPlayer} placeholder="Search player..." />
+      <div className="chart-controls">
+        <PlayerSearch players={players} onSelect={onSelectPlayer} placeholder="Search a player…" />
+        {selected && <CompareRow players={players} compare={compare} onCompare={selectCompare} onClear={() => { setCompare(null); setCompareHistory([]) }} excludeId={selected.id} />}
       </div>
 
-      {!selected && (
-        <div style={{ background: 'var(--bg)', borderRadius: '12px', padding: '48px', textAlign: 'center', border: '1px dashed var(--border)' }}>
-          <div style={{ fontSize: '32px', marginBottom: '12px' }}>📈</div>
-          <div style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>Search for a player above to load their GW-by-GW points timeline</div>
+      {!selected ? (
+        <div className="panel" style={{ padding: '48px', textAlign: 'center', borderStyle: 'dashed' }}>
+          <div style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>Search for a player to load their gameweek-by-gameweek points.</div>
         </div>
-      )}
-
-      {selected && (
-        <div style={{ background: 'var(--bg)', borderRadius: '12px', padding: '20px', border: `1px solid ${POS_COLORS[selected.position] || '#00ff87'}` }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '20px', flexWrap: 'wrap' }}>
-            {selected.code && (
-              <img src={`https://resources.premierleague.com/premierleague/photos/players/110x140/p${selected.code}.png`}
-                style={{ height: '65px', objectFit: 'contain' }}
-                onError={e => e.target.style.display = 'none'} />
-            )}
-            <div style={{ flex: 1 }}>
-              <div style={{ fontWeight: 'bold', fontSize: '20px' }}>{selected.web_name}</div>
-              <div style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>{selected.team_name} · {selected.position} · £{selected.price}m</div>
-            </div>
-            {avgPts && (
-              <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-                {[
-                  ['Season Pts', selected.total_points, 'var(--text)'],
-                  ['Avg / GW', avgPts, '#00ff87'],
-                  ['Best GW', `GW${bestGW?.gameweek} (${bestGW?.total_points}pts)`, '#ffd700'],
-                  ['Form', selected.form, '#00b2ff'],
-                  ['xG/90', parseFloat(selected.xg_per90 || 0).toFixed(3), '#00b2ff'],
-                  ['xA/90', parseFloat(selected.xa_per90 || 0).toFixed(3), '#00b2ff'],
-                ].map(([label, val, color]) => (
-                  <div key={label} style={{ background: 'var(--bg-card)', borderRadius: '8px', padding: '8px 14px', textAlign: 'center' }}>
-                    <div style={{ color: 'var(--text-secondary)', fontSize: '10px', marginBottom: '2px' }}>{label}</div>
-                    <div style={{ color, fontWeight: 'bold', fontSize: '15px' }}>{val}</div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px', flexWrap: 'wrap' }}>
-            <span style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>Compare with:</span>
-            <PlayerSearch players={players} onSelect={selectCompare} placeholder="Search player to compare..." excludeId={selected.id} />
-            {compare && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <div style={{ width: '12px', height: '3px', background: '#ff8800', borderRadius: '2px' }} />
-                <span style={{ color: 'var(--text)', fontSize: '13px', fontWeight: 'bold' }}>{compare.web_name}</span>
-                <button onClick={() => { setCompare(null); setCompareHistory([]) }}
-                  style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '16px', lineHeight: 1 }}>×</button>
-              </div>
-            )}
-          </div>
-
-          {loading ? (
-            <p style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>Loading timeline...</p>
-          ) : (
-            <div style={{ height: '280px', marginBottom: '24px' }}>
-              <Line data={lineData} options={lineOptions} />
-            </div>
-          )}
-
-          <GWTable history={history} position={selected.position} />
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ─── Price vs Output Map ─────────────────────────────────────────────────────
-function ValueMap({ players, selectedPlayer, onSelectPlayer }) {
-  const [position, setPosition] = useState('All')
-  const [compare, setCompare] = useState(null)
-  const pool = players
-    .filter(p => position === 'All' || p.position === position)
-    .filter(p => (p.minutes || 0) >= 180)
-    .map(p => ({
-      ...p,
-      priceNum: parseFloat(p.price || 0),
-      ppgNum: parseFloat(p.points_per_game || 0),
-      valueNum: parseFloat(p.total_points || 0) / Math.max(0.1, parseFloat(p.price || 0)),
-      ownNum: parseFloat(p.selected_by_percent || 0),
-    }))
-
-  const maxPrice = Math.max(...pool.map(p => p.priceNum), 8) + 0.5
-  const maxPpg = Math.max(...pool.map(p => p.ppgNum), 6) + 0.6
-  const bgDots = pool.filter(p => p.id !== selectedPlayer?.id && p.id !== compare?.id)
-  const selectedDot = pool.find(p => p.id === selectedPlayer?.id)
-  const compareDot = pool.find(p => p.id === compare?.id)
-
-  const scatterData = {
-    datasets: [
-      {
-        label: 'Players',
-        data: bgDots.map(p => ({ x: p.priceNum, y: p.ppgNum, player: p })),
-        pointRadius: (ctx) => {
-          const p = ctx.raw?.player
-          if (!p) return 4
-          return Math.max(3, Math.min(8, p.valueNum * 0.9))
-        },
-        pointHoverRadius: 8,
-        backgroundColor: 'rgba(255,255,255,0.14)',
-        borderColor: 'rgba(255,255,255,0.08)',
-        borderWidth: 1,
-      },
-      ...(selectedDot ? [{
-        label: selectedPlayer.web_name,
-        data: [{ x: selectedDot.priceNum, y: selectedDot.ppgNum, player: selectedDot }],
-        pointRadius: 11,
-        pointHoverRadius: 13,
-        backgroundColor: '#00ff87',
-        borderColor: '#00ff87',
-        borderWidth: 1,
-      }] : []),
-      ...(compareDot ? [{
-        label: compare.web_name,
-        data: [{ x: compareDot.priceNum, y: compareDot.ppgNum, player: compareDot }],
-        pointRadius: 11,
-        pointHoverRadius: 13,
-        backgroundColor: '#ff8800',
-        borderColor: '#ff8800',
-        borderWidth: 1,
-      }] : []),
-    ]
-  }
-
-  const scatterOptions = {
-    responsive: true,
-    maintainAspectRatio: false,
-    animation: false,
-    onClick: (_, elements) => {
-      if (!elements.length) return
-      const point = scatterData.datasets[elements[0].datasetIndex].data[elements[0].index]
-      if (point?.player) onSelectPlayer(point.player)
-    },
-    plugins: {
-      legend: { display: !!compare, labels: { color: 'var(--text-secondary)' } },
-      tooltip: {
-        backgroundColor: 'var(--bg)',
-        borderColor: 'var(--border)',
-        borderWidth: 1,
-        callbacks: {
-          label: (ctx) => {
-            const p = ctx.raw?.player
-            if (!p) return ''
-            return [
-              `${p.web_name} (${p.team_name})`,
-              `£${p.priceNum.toFixed(1)}m · ${p.ppgNum.toFixed(1)} PPG`,
-              `Value: ${p.valueNum.toFixed(2)} pts/£m · Ownership: ${p.ownNum.toFixed(1)}%`,
-            ]
-          }
-        }
-      }
-    },
-    scales: {
-      x: {
-        title: { display: true, text: 'Price (£m)', color: 'var(--text)' },
-        min: 3.5, max: maxPrice, ticks: { color: 'var(--text)' }, grid: { color: 'var(--grid)' },
-      },
-      y: {
-        title: { display: true, text: 'Points per Game', color: 'var(--text)' },
-        min: 0, max: maxPpg, ticks: { color: 'var(--text)' }, grid: { color: 'var(--grid)' },
-      }
-    }
-  }
-
-  return (
-    <div>
-      <div style={{ marginBottom: '14px' }}>
-        <PlayerSearch players={pool} onSelect={onSelectPlayer} placeholder="Search player..." />
-      </div>
-
-      <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '14px' }}>
-        {POSITIONS.map(pos => (
-          <button key={pos} onClick={() => setPosition(pos)} style={{
-            padding: '5px 11px', borderRadius: '6px', cursor: 'pointer',
-            border: `1px solid ${position === pos ? '#00ff87' : 'var(--border)'}`,
-            background: position === pos ? 'rgba(0,255,135,0.12)' : 'transparent',
-            color: position === pos ? '#00ff87' : 'var(--text-secondary)',
-            fontSize: '12px'
-          }}>{pos}</button>
-        ))}
-      </div>
-
-      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px', flexWrap: 'wrap' }}>
-        <span style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>Compare with:</span>
-        <PlayerSearch players={pool} onSelect={setCompare} placeholder="Search player to compare..." excludeId={selectedPlayer?.id ?? null} />
-        {compare && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <div style={{ width: '12px', height: '3px', background: '#ff8800', borderRadius: '2px' }} />
-            <span style={{ color: 'var(--text)', fontSize: '13px', fontWeight: 'bold' }}>{compare.web_name}</span>
-            <button onClick={() => setCompare(null)}
-              style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '16px', lineHeight: 1 }}>×</button>
-          </div>
-        )}
-      </div>
-
-      <div style={{ height: '420px' }}>
-        <Scatter data={scatterData} options={scatterOptions} />
-      </div>
-
-      <p style={{ marginTop: '10px', color: 'var(--text-muted)', fontSize: '12px' }}>
-        Bubble size reflects value (total points per £m). Click a player to inspect them in other tabs.
-      </p>
-      {selectedPlayer && (
-        <p style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>
-          Selected: <span style={{ color: '#00ff87', fontWeight: 'bold' }}>{selectedPlayer.web_name}</span>
-        </p>
-      )}
-    </div>
-  )
-}
-
-// ─── Differential Radar ──────────────────────────────────────────────────────
-function DifferentialRadar({ players, selectedPlayer, onSelectPlayer }) {
-  const [position, setPosition] = useState('All')
-  const [compare, setCompare] = useState(null)
-
-  const candidates = players
-    .filter(p => position === 'All' || p.position === position)
-    .filter(p => (p.minutes || 0) >= 270)
-    .map(p => ({
-      ...p,
-      ownNum: parseFloat(p.selected_by_percent || 0),
-      formNum: parseFloat(p.form || 0),
-      ppgNum: parseFloat(p.points_per_game || 0),
-    }))
-    .filter(p => p.ownNum <= 40)
-    .sort((a, b) => (b.formNum * 0.7 + b.ppgNum * 0.3) - (a.formNum * 0.7 + a.ppgNum * 0.3))
-    .slice(0, 15)
-
-  const selectedId = selectedPlayer?.id
-  const compareId = compare?.id
-
-  const barData = {
-    labels: candidates.map(p => p.web_name),
-    datasets: [
-      {
-        label: 'Form',
-        data: candidates.map(p => p.formNum),
-        backgroundColor: candidates.map(p =>
-          p.id === selectedId ? 'rgba(0, 255, 135, 0.9)'
-          : p.id === compareId ? 'rgba(255,136,0,0.85)'
-          : 'rgba(255,255,255,0.18)'
-        ),
-        borderColor: '#00ff87',
-        borderWidth: 1,
-      },
-      {
-        label: 'Ownership %',
-        data: candidates.map(p => p.ownNum),
-        backgroundColor: candidates.map(p =>
-          p.id === selectedId ? 'rgba(0, 178, 255, 0.85)'
-          : p.id === compareId ? 'rgba(255,136,0,0.55)'
-          : 'rgba(255,255,255,0.12)'
-        ),
-        borderColor: '#00b2ff',
-        borderWidth: 1,
-      }
-    ]
-  }
-
-  const barOptions = {
-    responsive: true,
-    maintainAspectRatio: false,
-    onClick: (_, elements) => {
-      if (!elements.length) return
-      const idx = elements[0].index
-      if (idx == null) return
-      const p = candidates[idx]
-      if (p) onSelectPlayer(p)
-    },
-    plugins: {
-      legend: { labels: { color: 'var(--text)' } },
-      tooltip: {
-        backgroundColor: 'var(--bg)',
-        borderColor: 'var(--border)',
-        borderWidth: 1,
-      }
-    },
-    scales: {
-      x: { ticks: { color: 'var(--text)' }, grid: { color: 'var(--grid)' } },
-      y: { ticks: { color: 'var(--text)' }, grid: { color: 'var(--grid)' } }
-    }
-  }
-
-  return (
-    <div>
-      <div style={{ marginBottom: '14px' }}>
-        <PlayerSearch players={candidates} onSelect={onSelectPlayer} placeholder="Search player..." />
-      </div>
-
-      <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '12px' }}>
-        {POSITIONS.map(pos => (
-          <button key={pos} onClick={() => setPosition(pos)} style={{
-            padding: '5px 11px', borderRadius: '6px', cursor: 'pointer',
-            border: `1px solid ${position === pos ? '#00ff87' : 'var(--border)'}`,
-            background: position === pos ? 'rgba(0,255,135,0.12)' : 'transparent',
-            color: position === pos ? '#00ff87' : 'var(--text-secondary)',
-            fontSize: '12px'
-          }}>{pos}</button>
-        ))}
-      </div>
-
-      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px', flexWrap: 'wrap' }}>
-        <span style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>Compare with:</span>
-        <PlayerSearch players={candidates} onSelect={setCompare} placeholder="Search player to compare..." excludeId={selectedPlayer?.id ?? null} />
-        {compare && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <div style={{ width: '12px', height: '3px', background: '#ff8800', borderRadius: '2px' }} />
-            <span style={{ color: 'var(--text)', fontSize: '13px', fontWeight: 'bold' }}>{compare.web_name}</span>
-            <button onClick={() => setCompare(null)}
-              style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '16px', lineHeight: 1 }}>×</button>
-          </div>
-        )}
-      </div>
-
-      <div style={{ height: '390px' }}>
-        <Bar data={barData} options={barOptions} />
-      </div>
-
-      <p style={{ marginTop: '10px', color: 'var(--text-muted)', fontSize: '12px' }}>
-        Grey bars show the pool baseline. Green = selected player, orange = compare player.
-      </p>
-      {selectedPlayer && (
-        <p style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>
-          Selected: <span style={{ color: '#00ff87', fontWeight: 'bold' }}>{selectedPlayer.web_name}</span>
-        </p>
-      )}
-    </div>
-  )
-}
-
-// ─── Fixture Swing Meter ─────────────────────────────────────────────────────
-function FixtureSwing() {
-  const [nextGws, setNextGws] = useState(5)
-  const [rows, setRows] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [selectedTeam, setSelectedTeam] = useState('ARS')
-  const [teamSearch, setTeamSearch] = useState('')
-
-  useEffect(() => {
-    setLoading(true)
-    getFdrTable(nextGws)
-      .then(res => setRows(Array.isArray(res.data) ? res.data : []))
-      .catch(() => setRows([]))
-      .finally(() => setLoading(false))
-  }, [nextGws])
-
-  const byTeam = rows.reduce((acc, r) => {
-    if (!acc[r.short_name]) acc[r.short_name] = []
-    acc[r.short_name].push(r)
-    return acc
-  }, {})
-
-  const teamStats = Object.entries(byTeam).map(([team, fixtures]) => {
-    const sorted = [...fixtures].sort((a, b) => a.gameweek - b.gameweek)
-    const avg = sorted.reduce((s, f) => s + Number(f.difficulty || 3), 0) / Math.max(1, sorted.length)
-    const first = sorted.slice(0, Math.ceil(sorted.length / 2))
-    const second = sorted.slice(Math.ceil(sorted.length / 2))
-    const firstAvg = first.reduce((s, f) => s + Number(f.difficulty || 3), 0) / Math.max(1, first.length)
-    const secondAvg = second.reduce((s, f) => s + Number(f.difficulty || 3), 0) / Math.max(1, second.length)
-    const swing = firstAvg - secondAvg // positive = improving run
-    return { team, fixtures: sorted, avg, swing }
-  }).sort((a, b) => a.avg - b.avg)
-
-  const selected = teamStats.find(t => t.team === selectedTeam) || teamStats[0]
-  const teamOptions = teamStats.map(t => t.team)
-  const teamMatches = teamSearch
-    ? teamOptions.filter(t => t.toLowerCase().includes(teamSearch.toLowerCase())).slice(0, 8)
-    : []
-
-  const colorForDiff = (d) => {
-    if (d <= 2) return 'rgba(0,255,135,0.85)'
-    if (d <= 3) return 'rgba(255,215,0,0.8)'
-    if (d <= 4) return 'rgba(255,136,0,0.8)'
-    return 'rgba(255,68,68,0.85)'
-  }
-
-  const barData = {
-    labels: teamStats.map(t => t.team),
-    datasets: [{
-      label: `Avg FDR (next ${nextGws} GW)`,
-      data: teamStats.map(t => Number(t.avg.toFixed(2))),
-      backgroundColor: teamStats.map(t => colorForDiff(t.avg)),
-      borderWidth: teamStats.map(t => (t.team === selectedTeam ? 2 : 0)),
-      borderColor: teamStats.map(t => (t.team === selectedTeam ? '#ffffff' : 'transparent')),
-    }]
-  }
-
-  const barOptions = {
-    responsive: true,
-    maintainAspectRatio: false,
-    indexAxis: 'y',
-    onClick: (_, elements) => {
-      if (!elements.length) return
-      const idx = elements[0].index
-      const t = teamStats[idx]
-      if (t) setSelectedTeam(t.team)
-    },
-    plugins: {
-      legend: { display: false },
-      tooltip: {
-        backgroundColor: 'var(--bg)',
-        borderColor: 'var(--border)',
-        borderWidth: 1,
-        callbacks: {
-          label: (ctx) => `${ctx.raw} avg difficulty`,
-        }
-      }
-    },
-    scales: {
-      x: {
-        min: 1, max: 5,
-        ticks: { color: 'var(--text)' },
-        grid: { color: 'var(--grid)' },
-        title: { display: true, text: 'Fixture Difficulty (1 easy → 5 hard)', color: 'var(--text)' },
-      },
-      y: {
-        ticks: { color: 'var(--text-secondary)' },
-        grid: { color: 'var(--grid)' }
-      }
-    }
-  }
-
-  return (
-    <div>
-      <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '14px' }}>
-        {[3, 5, 8].map(n => (
-          <button key={n} onClick={() => setNextGws(n)} style={{
-            padding: '6px 10px',
-            borderRadius: '6px',
-            border: `1px solid ${nextGws === n ? '#00ff87' : 'var(--border)'}`,
-            background: nextGws === n ? 'rgba(0,255,135,0.12)' : 'transparent',
-            color: nextGws === n ? '#00ff87' : 'var(--text-secondary)',
-            cursor: 'pointer',
-            fontSize: '12px'
-          }}>
-            Next {n} GW
-          </button>
-        ))}
-      </div>
-
-      <div style={{ position: 'relative', maxWidth: '320px', marginBottom: '14px' }}>
-        <input
-          placeholder="Search team (e.g. ARS, MCI)..."
-          value={teamSearch}
-          onChange={e => setTeamSearch(e.target.value)}
-          style={{
-            width: '100%',
-            padding: '9px 12px',
-            borderRadius: '8px',
-            border: '1px solid var(--border)',
-            background: 'var(--bg)',
-            color: 'var(--text)',
-            fontSize: '13px'
-          }}
-        />
-        {teamSearch && teamMatches.length > 0 && (
-          <div style={{
-            position: 'absolute',
-            zIndex: 100,
-            top: '38px',
-            width: '100%',
-            background: 'var(--bg-card)',
-            border: '1px solid var(--border)',
-            borderRadius: '8px',
-            overflow: 'hidden'
-          }}>
-            {teamMatches.map(team => (
-              <button
-                key={team}
-                onClick={() => { setSelectedTeam(team); setTeamSearch('') }}
-                style={{
-                  display: 'block',
-                  width: '100%',
-                  textAlign: 'left',
-                  padding: '8px 10px',
-                  border: 'none',
-                  borderBottom: '1px solid var(--border)',
-                  background: 'transparent',
-                  color: 'var(--text)',
-                  cursor: 'pointer',
-                  fontSize: '12px'
-                }}
-              >
-                {team}
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {loading ? (
-        <p style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>Loading fixture matrix...</p>
       ) : (
         <>
-          <div style={{ height: '460px', marginBottom: '16px' }}>
-            <Bar data={barData} options={barOptions} />
-          </div>
-
-          {selected && (
-            <div style={{ background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: '10px', padding: '12px 14px' }}>
-              <div style={{ color: 'var(--text)', fontWeight: 'bold', marginBottom: '10px' }}>
-                {selected.team} fixture run ({nextGws} GW) · avg {selected.avg.toFixed(2)} · swing {selected.swing >= 0 ? '▲' : '▼'} {Math.abs(selected.swing).toFixed(2)}
-              </div>
-              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                {selected.fixtures.map(f => (
-                  <div key={`${selected.team}-${f.gameweek}-${f.venue}`} style={{
-                    background: colorForDiff(Number(f.difficulty || 3)),
-                    color: '#0b0b0b',
-                    padding: '6px 8px',
-                    borderRadius: '6px',
-                    fontWeight: 'bold',
-                    fontSize: '12px',
-                    minWidth: '68px',
-                    textAlign: 'center'
-                  }}>
-                    GW{f.gameweek} {f.venue}
-                    <div style={{ fontSize: '11px' }}>{f.difficulty}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+          <PlayerHead selected={selected} tiles={[
+            ['Season', selected.total_points, null],
+            ['Avg / GW', avgPts, 'var(--accent)'],
+            ['Best', bestGW ? `${bestGW.total_points} (GW${bestGW.gameweek})` : '—', 'var(--gold)'],
+            ['Form', selected.form, 'var(--info)'],
+            ['xG/90', parseFloat(selected.xg_per90 || 0).toFixed(2), null],
+          ]} />
+          {loading ? <p className="hint">Loading timeline…</p> : <div style={CHART_H}><Line data={data} options={options} /></div>}
         </>
       )}
     </div>
   )
 }
 
+// ─── Price vs Output ─────────────────────────────────────────────────────────
+function ValueMap({ players, selectedPlayer, onSelectPlayer }) {
+  const C = useThemeColors()
+  const [position, setPosition] = useState('All')
+  const [compare, setCompare] = useState(null)
+
+  const pool = players
+    .filter(p => position === 'All' || p.position === position)
+    .filter(p => (p.minutes || 0) >= 180)
+    .map(p => ({ ...p, priceNum: parseFloat(p.price || 0), ppgNum: parseFloat(p.points_per_game || 0), valueNum: parseFloat(p.total_points || 0) / Math.max(0.1, parseFloat(p.price || 0)), ownNum: parseFloat(p.selected_by_percent || 0) }))
+
+  const maxPrice = Math.max(...pool.map(p => p.priceNum), 8) + 0.5
+  const maxPpg = Math.max(...pool.map(p => p.ppgNum), 6) + 0.6
+  const bg = pool.filter(p => p.id !== selectedPlayer?.id && p.id !== compare?.id)
+  const selDot = pool.find(p => p.id === selectedPlayer?.id)
+  const cmpDot = pool.find(p => p.id === compare?.id)
+
+  const data = {
+    datasets: [
+      { label: 'Players', data: bg.map(p => ({ x: p.priceNum, y: p.ppgNum, player: p })), pointRadius: ctx => { const p = ctx.raw?.player; return p ? Math.max(3, Math.min(9, p.valueNum * 0.9)) : 4 }, pointHoverRadius: 9, backgroundColor: alpha(C.muted, 0.45), borderColor: alpha(C.muted, 0.25), borderWidth: 1 },
+      ...(selDot ? [{ label: selectedPlayer.web_name, data: [{ x: selDot.priceNum, y: selDot.ppgNum, player: selDot }], pointRadius: 11, pointHoverRadius: 13, backgroundColor: C.accent, borderColor: C.surface, borderWidth: 2 }] : []),
+      ...(cmpDot ? [{ label: compare.web_name, data: [{ x: cmpDot.priceNum, y: cmpDot.ppgNum, player: cmpDot }], pointRadius: 11, pointHoverRadius: 13, backgroundColor: C.gold, borderColor: C.surface, borderWidth: 2 }] : []),
+    ]
+  }
+  const options = {
+    responsive: true, maintainAspectRatio: false, animation: false,
+    onClick: (e, els) => { if (els.length) { const pt = data.datasets[els[0].datasetIndex].data[els[0].index]; if (pt?.player) onSelectPlayer(pt.player) } },
+    plugins: {
+      legend: { display: false },
+      tooltip: { ...baseTooltip(C), callbacks: { label: ctx => { const p = ctx.raw?.player; if (!p) return ''; return [`${p.web_name} (${p.team_name})`, `£${p.priceNum.toFixed(1)}m · ${p.ppgNum.toFixed(1)} PPG`, `Value ${p.valueNum.toFixed(2)} pts/£m · ${p.ownNum.toFixed(1)}% owned`] } } },
+    },
+    scales: baseScales(C, 'Price (£m)', 'Points per Game', { min: 3.5, max: maxPrice }, { min: 0, max: maxPpg }),
+  }
+
+  return (
+    <div>
+      <div className="chart-controls">
+        <PlayerSearch players={pool} onSelect={onSelectPlayer} placeholder="Search a player…" />
+        <PosFilter value={position} onChange={setPosition} />
+        <CompareRow players={pool} compare={compare} onCompare={setCompare} onClear={() => setCompare(null)} excludeId={selectedPlayer?.id ?? null} />
+      </div>
+      <div style={CHART_H}><Scatter data={data} options={options} /></div>
+      <p className="hint" style={{ marginTop: '10px' }}>Bubble size reflects value (total points per £m). Top-left of the cloud = cheap and productive. Click a dot to inspect.</p>
+    </div>
+  )
+}
+
+// ─── Differential Radar — form-vs-ownership quadrant map ─────────────────────
+function DifferentialQuadrant({ players, selectedPlayer, onSelectPlayer }) {
+  const C = useThemeColors()
+  const [position, setPosition] = useState('All')
+  const [compare, setCompare] = useState(null)
+
+  const pool = players
+    .filter(p => position === 'All' || p.position === position)
+    .filter(p => (p.minutes || 0) >= 270)
+    .map(p => ({ ...p, ownNum: parseFloat(p.selected_by_percent || 0), ppgNum: parseFloat(p.points_per_game || 0) }))
+    .filter(p => p.ownNum <= 60)
+
+  const maxOwn = Math.max(...pool.map(p => p.ownNum), 20) + 3
+  const maxPpg = Math.max(...pool.map(p => p.ppgNum), 5) + 0.6
+  const ppgAvg = pool.length ? pool.reduce((s, p) => s + p.ppgNum, 0) / pool.length : 0
+  const ownDiv = 15
+  const isDiff = p => p.ownNum <= ownDiv && p.ppgNum >= ppgAvg
+
+  const selId = selectedPlayer?.id, cmpId = compare?.id
+  const bg = pool.filter(p => p.id !== selId && p.id !== cmpId)
+  const selDot = pool.find(p => p.id === selId)
+  const cmpDot = pool.find(p => p.id === cmpId)
+
+  const data = {
+    datasets: [
+      // quadrant dividers
+      { type: 'line', label: '_v', data: [{ x: ownDiv, y: 0 }, { x: ownDiv, y: maxPpg }], borderColor: alpha(C.muted, 0.5), borderDash: [5, 5], borderWidth: 1, pointRadius: 0, fill: false },
+      { type: 'line', label: '_h', data: [{ x: 0, y: ppgAvg }, { x: maxOwn, y: ppgAvg }], borderColor: alpha(C.muted, 0.5), borderDash: [5, 5], borderWidth: 1, pointRadius: 0, fill: false },
+      { label: 'Players', data: bg.map(p => ({ x: p.ownNum, y: p.ppgNum, player: p })), backgroundColor: bg.map(p => isDiff(p) ? alpha(C.accent, 0.8) : alpha(C.muted, 0.4)), pointRadius: bg.map(p => isDiff(p) ? 6 : 4), pointHoverRadius: 9, borderColor: C.surface, borderWidth: 1 },
+      ...(selDot ? [{ label: selectedPlayer.web_name, data: [{ x: selDot.ownNum, y: selDot.ppgNum, player: selDot }], backgroundColor: C.accent, borderColor: C.surface, borderWidth: 2, pointRadius: 11, pointHoverRadius: 13 }] : []),
+      ...(cmpDot ? [{ label: compare.web_name, data: [{ x: cmpDot.ownNum, y: cmpDot.ppgNum, player: cmpDot }], backgroundColor: C.gold, borderColor: C.surface, borderWidth: 2, pointRadius: 11, pointHoverRadius: 13 }] : []),
+    ]
+  }
+  const options = {
+    responsive: true, maintainAspectRatio: false, animation: false,
+    onClick: (e, els) => { if (els.length) { const pt = data.datasets[els[0].datasetIndex].data[els[0].index]; if (pt?.player) onSelectPlayer(pt.player) } },
+    plugins: {
+      legend: { display: false },
+      tooltip: { ...baseTooltip(C), filter: item => !!item.raw?.player, callbacks: { label: ctx => { const p = ctx.raw?.player; if (!p) return ''; return [`${p.web_name} (${p.team_name})`, `${p.ppgNum.toFixed(1)} PPG · ${p.ownNum.toFixed(1)}% owned`, isDiff(p) ? 'Differential — high output, low ownership' : ''] } } },
+    },
+    scales: baseScales(C, 'Ownership %', 'Points per Game', { min: 0, max: maxOwn }, { min: 0, max: maxPpg }),
+  }
+
+  return (
+    <div>
+      <div className="chart-controls">
+        <PlayerSearch players={pool} onSelect={onSelectPlayer} placeholder="Search a player…" />
+        <PosFilter value={position} onChange={setPosition} />
+        <CompareRow players={pool} compare={compare} onCompare={setCompare} onClear={() => setCompare(null)} excludeId={selectedPlayer?.id ?? null} />
+      </div>
+      <div style={CHART_H}><Scatter data={data} options={options} /></div>
+      <div className="chart-legend">
+        <span><i style={{ background: 'var(--accent)' }} /> Differential (top-left: high output, ≤{ownDiv}% owned)</span>
+        <span><i style={{ background: 'var(--text-muted)' }} /> The pack</span>
+      </div>
+    </div>
+  )
+}
+
 // ─── Main Analytics Page ─────────────────────────────────────────────────────
+const TABS = [
+  { key: 'xg',       label: 'xG vs Goals',    icon: <><circle cx="12" cy="12" r="8.5" /><path d="M4 12h16" strokeLinecap="round" /></> },
+  { key: 'timeline', label: 'Form Timeline',  icon: <path d="M4 15l4-5 4 3 5-7" strokeLinecap="round" strokeLinejoin="round" /> },
+  { key: 'value',    label: 'Price vs Output',icon: <><path d="M4 20V5M4 20h16" strokeLinecap="round" /><circle cx="9" cy="13" r="1.6" /><circle cx="14" cy="9" r="1.6" /><circle cx="18" cy="11" r="1.6" /></> },
+  { key: 'radar',    label: 'Differential Radar', icon: <><circle cx="12" cy="12" r="8.5" /><path d="M12 12l4-2" strokeLinecap="round" /></> },
+]
+
 export default function Analytics({ initialPlayer = null }) {
   const [players, setPlayers] = useState([])
   const [loading, setLoading] = useState(true)
   const [tab, setTab] = useState('xg')
   const [selectedPlayer, setSelectedPlayer] = useState(initialPlayer)
 
-  useEffect(() => {
-    getPlayers()
-      .then(res => setPlayers(res.data))
-      .finally(() => setLoading(false))
-  }, [])
-
-  useEffect(() => {
-    if (initialPlayer) {
-      setSelectedPlayer(initialPlayer)
-      setTab('timeline')
-    }
-  }, [initialPlayer])
-
-  const tabs = [
-    { key: 'xg',       label: '⚽ xG vs Goals',  desc: 'See where any player sits vs their peers — click to highlight' },
-    { key: 'timeline', label: '📈 Form Timeline', desc: 'GW-by-GW scoring history for any player' },
-    { key: 'value',    label: '💸 Price vs Output', desc: 'Spot value picks by viewing price, PPG, and value bubbles together' },
-    { key: 'radar',    label: '🛰️ Differential Radar', desc: 'Track high-form players whose ownership is still relatively low' },
-    { key: 'fixtures', label: '🗓️ Fixture Swing', desc: 'See easiest upcoming fixture runs and identify improving schedules' },
-  ]
+  useEffect(() => { getPlayers().then(res => setPlayers(res.data)).finally(() => setLoading(false)) }, [])
+  useEffect(() => { if (initialPlayer) { setSelectedPlayer(initialPlayer); setTab('timeline') } }, [initialPlayer])
 
   return (
     <div>
-      <h2 style={{ marginBottom: '6px', color: '#00ff87' }}>📊 Analytics</h2>
-      <p style={{ color: 'var(--text-secondary)', marginBottom: '24px', fontSize: '14px' }}>
-        Other stats and cool charts! 
-      </p>
+      <div className="page-head">
+        <h1 className="page-title">Analytics</h1>
+        <p className="page-sub">Where players sit versus their peers — click any point to inspect.</p>
+      </div>
 
-      <div style={{ display: 'flex', gap: '10px', marginBottom: '28px', flexWrap: 'wrap' }}>
-        {tabs.map(t => (
-          <button key={t.key} onClick={() => setTab(t.key)} style={{
-            padding: '10px 20px', borderRadius: '8px', cursor: 'pointer',
-            border: `1px solid ${tab === t.key ? '#00ff87' : 'var(--border)'}`,
-            background: tab === t.key ? 'rgba(0,255,135,0.1)' : 'transparent',
-            color: tab === t.key ? '#00ff87' : 'var(--text-secondary)',
-            fontWeight: tab === t.key ? 'bold' : 'normal', fontSize: '14px',
-            transition: 'all 0.15s'
-          }}>
-            {t.label}
+      <div className="tabs" style={{ marginBottom: '14px' }}>
+        {TABS.map(t => (
+          <button key={t.key} className={`tab${tab === t.key ? ' on' : ''}`} onClick={() => setTab(t.key)}>
+            <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.7">{t.icon}</svg>{t.label}
           </button>
         ))}
       </div>
 
       {loading ? (
-        <div style={{ textAlign: 'center', padding: '60px', color: 'var(--text-secondary)' }}>
-          <div style={{ fontSize: '32px', marginBottom: '12px' }}>⏳</div>
-          Loading player data...
-        </div>
+        <div className="panel panel-pad" style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '48px' }}>Loading player data…</div>
       ) : (
-        <div style={{ background: 'var(--bg-card)', borderRadius: '12px', padding: '24px', border: '1px solid var(--border)' }}>
-          <div style={{ marginBottom: '20px' }}>
-            <h3 style={{ margin: 0, fontSize: '17px', marginBottom: '4px' }}>
-              {tabs.find(t => t.key === tab)?.label}
-            </h3>
-            <p style={{ color: 'var(--text-muted)', fontSize: '13px', margin: 0 }}>
-              {tabs.find(t => t.key === tab)?.desc}
-            </p>
-          </div>
-          {tab === 'xg' && (
-            <XGPanel players={players} selectedPlayer={selectedPlayer} onSelectPlayer={setSelectedPlayer} />
-          )}
-          {tab === 'timeline' && (
-            <FormTimeline players={players} selectedPlayer={selectedPlayer} onSelectPlayer={setSelectedPlayer} />
-          )}
-          {tab === 'value' && (
-            <ValueMap players={players} selectedPlayer={selectedPlayer} onSelectPlayer={setSelectedPlayer} />
-          )}
-          {tab === 'radar' && (
-            <DifferentialRadar players={players} selectedPlayer={selectedPlayer} onSelectPlayer={setSelectedPlayer} />
-          )}
-          {tab === 'fixtures' && (
-            <FixtureSwing />
-          )}
+        <div className="chart-panel">
+          {tab === 'xg'       && <XGPanel players={players} selectedPlayer={selectedPlayer} onSelectPlayer={setSelectedPlayer} />}
+          {tab === 'timeline' && <FormTimeline players={players} selectedPlayer={selectedPlayer} onSelectPlayer={setSelectedPlayer} />}
+          {tab === 'value'    && <ValueMap players={players} selectedPlayer={selectedPlayer} onSelectPlayer={setSelectedPlayer} />}
+          {tab === 'radar'    && <DifferentialQuadrant players={players} selectedPlayer={selectedPlayer} onSelectPlayer={setSelectedPlayer} />}
         </div>
       )}
     </div>

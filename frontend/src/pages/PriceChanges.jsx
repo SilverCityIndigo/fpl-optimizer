@@ -2,147 +2,79 @@ import { useState, useEffect } from 'react'
 import { getPriceChanges } from '../api'
 
 const POSITIONS = ['All', 'GKP', 'DEF', 'MID', 'FWD']
+const POS_COLORS = { GKP: 'var(--gold)', DEF: 'var(--info)', MID: 'var(--accent)', FWD: 'var(--danger)' }
+const PHOTO = code => `https://resources.premierleague.com/premierleague/photos/players/110x140/p${code}.png`
 
 export default function PriceChanges() {
   const [players, setPlayers] = useState([])
   const [loading, setLoading] = useState(true)
-  const [position, setPosition] = useState('All') 
+  const [position, setPosition] = useState('All')
   const [tab, setTab] = useState('rising')
 
   useEffect(() => {
-    getPriceChanges()
-      .then(res => setPlayers(res.data))
-      .finally(() => setLoading(false))
+    getPriceChanges().then(res => setPlayers(res.data)).finally(() => setLoading(false))
   }, [])
 
   const filtered = players
-  .filter(p => tab === 'rising' ? Number(p.pressure_score) >= 50 : Number(p.pressure_score) <= -50)
-  .filter(p => position === 'All' || p.position === position)
-  .sort((a, b) => tab === 'rising' ? Number(b.pressure_score) - Number(a.pressure_score) : Number(a.pressure_score) - Number(b.pressure_score))
-  .slice(0, 20)
-
-  const posColors = { GKP: '#f5a623', DEF: '#00b2ff', MID: '#00ff87', FWD: '#ff4444' }
+    .filter(p => tab === 'rising' ? Number(p.pressure_score) >= 50 : Number(p.pressure_score) <= -50)
+    .filter(p => position === 'All' || p.position === position)
+    .sort((a, b) => tab === 'rising' ? Number(b.pressure_score) - Number(a.pressure_score) : Number(a.pressure_score) - Number(b.pressure_score))
+    .slice(0, 20)
 
   return (
     <div>
-      <h2 style={{ marginBottom: '8px', color: '#00ff87' }}>💰 Price Changes</h2>
-      <p style={{ color: 'var(--text-secondary)', marginBottom: '24px', fontSize: '14px' }}>
-        Players likely to rise or fall in price based on this gameweek's transfer activity.
-      </p>
-
-      {/* Rising / Falling tabs */}
-      <div style={{ display: 'flex', gap: '10px', marginBottom: '20px' }}>
-        {[['rising', '🔺 Rising'], ['falling', '🔻 Falling']].map(([key, label]) => (
-          <button key={key} onClick={() => setTab(key)}
-            style={{
-              padding: '10px 24px', borderRadius: '6px', fontWeight: 'bold', fontSize: '15px',
-              border: `1px solid ${key === 'rising' ? '#00ff87' : '#ff4444'}`,
-              background: tab === key ? (key === 'rising' ? '#00ff87' : '#ff4444') : 'transparent',
-              color: tab === key ? '#000' : 'var(--text)',
-              cursor: 'pointer'
-            }}>
-            {label}
-          </button>
-        ))}
+      <div className="page-head">
+        <h1 className="page-title">Price Changes</h1>
+        <p className="page-sub">Players likely to rise or fall in price based on this gameweek's transfer activity.</p>
       </div>
 
-      {/* Position filter */}
-      <div style={{ display: 'flex', gap: '10px', marginBottom: '24px', flexWrap: 'wrap' }}>
-        {POSITIONS.map(pos => (
-          <button key={pos} onClick={() => setPosition(pos)}
-            style={{
-              padding: '6px 14px', borderRadius: '6px',
-              border: '1px solid var(--border)',
-              background: position === pos ? 'var(--border)' : 'transparent',
-              color: position === pos ? 'var(--text)' : 'var(--text-secondary)',
-              cursor: 'pointer', fontWeight: position === pos ? 'bold' : 'normal'
-            }}>
-            {pos}
-          </button>
-        ))}
+      <div className="toolbar">
+        <div className="seg">
+          <button className={tab === 'rising' ? 'on' : ''} onClick={() => setTab('rising')}
+            style={tab === 'rising' ? undefined : { color: 'var(--text-secondary)' }}>▲ Rising</button>
+          <button className={tab === 'falling' ? 'on' : ''} onClick={() => setTab('falling')}
+            style={tab === 'falling' ? { background: 'var(--danger)', color: '#fff' } : { color: 'var(--text-secondary)' }}>▼ Falling</button>
+        </div>
+        <div className="seg">
+          {POSITIONS.map(pos => (
+            <button key={pos} className={position === pos ? 'on' : ''} onClick={() => setPosition(pos)}>{pos}</button>
+          ))}
+        </div>
       </div>
 
       {loading ? (
-        <p style={{ color: 'var(--text-secondary)' }}>Analyzing transfer activity...</p>
+        <p className="hint">Analyzing transfer activity…</p>
       ) : filtered.length === 0 ? (
-        <p style={{ color: 'var(--text-secondary)' }}>No players found for this filter.</p>
+        <p className="hint">No players found for this filter.</p>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+        <div className="list">
           {filtered.map((p, i) => {
             const isRising = p.pressure_score > 0
-            const accentColor = isRising ? '#00ff87' : '#ff4444'
-            const pressureAbs = Math.abs(p.pressure_score)
-
+            const accent = isRising ? 'var(--accent)' : 'var(--danger)'
+            const pressureAbs = Math.min(100, Math.abs(p.pressure_score))
             return (
-              <div key={p.id} style={{
-                background: 'var(--bg-card)',
-                borderRadius: '10px',
-                padding: '16px',
-                border: `1px solid ${i === 0 ? accentColor : 'var(--border)'}`,
-                display: 'flex',
-                alignItems: 'center',
-                gap: '16px',
-                flexWrap: 'wrap'
-              }}>
-                {/* Rank */}
-                <div style={{ color: i === 0 ? accentColor : 'var(--text-secondary)', fontWeight: 'bold', fontSize: '18px', minWidth: '28px' }}>
-                  #{i + 1}
-                </div>
-
-                {/* Photo */}
-                {p.code && (
-                  <img
-                    src={`https://resources.premierleague.com/premierleague/photos/players/110x140/p${p.code}.png`}
-                    alt={p.web_name}
-                    style={{ height: '60px', objectFit: 'contain' }}
-                    onError={e => e.target.style.display = 'none'}
-                  />
-                )}
-
-                {/* Name + position */}
-                <div style={{ flex: 1, minWidth: '140px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                    <span style={{
-                      background: posColors[p.position] || 'var(--text-secondary)',
-                      color: '#000', fontSize: '10px', fontWeight: 'bold',
-                      padding: '2px 6px', borderRadius: '3px'
-                    }}>{p.position}</span>
-                    <span style={{ fontWeight: 'bold', fontSize: '15px' }}>{p.web_name}</span>
+              <div key={p.id} className={`list-row${i === 0 ? ' lead' : ''}`} style={i === 0 ? { borderColor: `color-mix(in srgb, ${accent} 50%, var(--line))` } : undefined}>
+                <div className="rank" style={i === 0 ? { color: accent } : undefined}>#{i + 1}</div>
+                {p.code && <img src={PHOTO(p.code)} alt={p.web_name} style={{ height: '52px', objectFit: 'contain' }} onError={e => { e.target.style.display = 'none' }} />}
+                <div style={{ flex: 1, minWidth: '150px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '3px' }}>
+                    <span className="pos-pill" style={{ background: POS_COLORS[p.position] || 'var(--text-muted)' }}>{p.position}</span>
+                    <span style={{ fontWeight: 700, fontSize: '15px' }}>{p.web_name}</span>
                   </div>
                   <div style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>{p.team_name} · £{p.price}m</div>
                 </div>
-
-                {/* Pressure bar */}
-                <div style={{ minWidth: '160px' }}>
-                  <div style={{ color: 'var(--text-secondary)', fontSize: '10px', marginBottom: '4px' }}>Transfer Pressure</div>
-                  <div style={{ background: 'var(--bg)', borderRadius: '4px', height: '8px', overflow: 'hidden' }}>
-                    <div style={{
-                      width: `${pressureAbs}%`,
-                      height: '100%',
-                      background: accentColor,
-                      borderRadius: '4px',
-                      transition: 'width 0.3s'
-                    }} />
+                <div style={{ minWidth: '150px' }}>
+                  <div className="hint" style={{ marginBottom: '4px' }}>Transfer pressure</div>
+                  <div style={{ background: 'var(--tile)', borderRadius: '5px', height: '8px', overflow: 'hidden', border: '1px solid var(--line)' }}>
+                    <div style={{ width: `${pressureAbs}%`, height: '100%', background: accent, borderRadius: '5px', transition: 'width .3s' }} />
                   </div>
-                  <div style={{ color: accentColor, fontSize: '12px', fontWeight: 'bold', marginTop: '2px' }}>
-                    {isRising ? '+' : ''}{p.pressure_score}%
-                  </div>
+                  <div style={{ color: accent, fontSize: '12px', fontWeight: 700, marginTop: '3px', fontVariantNumeric: 'tabular-nums' }}>{isRising ? '+' : ''}{p.pressure_score}%</div>
                 </div>
-
-                {/* Stats */}
-                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                  {[
-                    ['Price', `£${p.price}m`, 'var(--text)'],
-                    ['Form', p.form, '#ffd700'],
-                    ['Owned', `${p.selected_by_percent}%`, '#00d4ff'],
-                    ['In', `+${p.transfers_in_event?.toLocaleString()}`, '#00ff87'],
-                    ['Out', `-${p.transfers_out_event?.toLocaleString()}`, '#ff4444'],
-                  ].map(([label, value, color]) => (
-                    <div key={label} style={{ background: 'var(--bg)', borderRadius: '6px', padding: '6px 10px', textAlign: 'center', minWidth: '55px' }}>
-                      <div style={{ color: 'var(--text-secondary)', fontSize: '10px', marginBottom: '2px' }}>{label}</div>
-                      <div style={{ color, fontWeight: 'bold', fontSize: '13px' }}>{value}</div>
-                    </div>
-                  ))}
+                <div className="tiles">
+                  <div className="tile"><div className="k">Form</div><div className="v" style={{ color: 'var(--gold)' }}>{p.form}</div></div>
+                  <div className="tile"><div className="k">Owned</div><div className="v" style={{ color: 'var(--info)' }}>{p.selected_by_percent}%</div></div>
+                  <div className="tile"><div className="k">In</div><div className="v" style={{ color: 'var(--accent)', fontSize: '13px' }}>+{p.transfers_in_event?.toLocaleString()}</div></div>
+                  <div className="tile"><div className="k">Out</div><div className="v" style={{ color: 'var(--danger)', fontSize: '13px' }}>−{p.transfers_out_event?.toLocaleString()}</div></div>
                 </div>
               </div>
             )

@@ -80,13 +80,19 @@ export default function App() {
   return (
     <div className={`app-shell${collapsed ? ' collapsed' : ''}`}>
       <aside className="sidebar">
-        <button className="brand" onClick={() => setPage('players')} title="The xG Files">
-          <span className="brand-sigil"><Sigil /></span>
-          <span className="brand-word">
-            <span className="the">The</span>
-            <span className="name"><span className="xg">xG</span> <span className="files">FILES</span></span>
-          </span>
-        </button>
+        <div className="brand">
+          <button className="brand-id" onClick={() => setPage('players')} title="The xG Files">
+            <span className="brand-sigil"><Sigil /></span>
+            <span className="brand-word">
+              <span className="the">The</span>
+              <span className="name"><span className="xg">xG</span> <span className="files">FILES</span></span>
+            </span>
+          </button>
+          <a className="brand-by" href="https://github.com/SilverCityIndigo" target="_blank" rel="noreferrer" title="SilverCityIndigo on GitHub">
+            <svg className="gh" width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 0 0-3.16 19.49c.5.09.68-.22.68-.48l-.01-1.7c-2.78.6-3.37-1.34-3.37-1.34-.45-1.16-1.11-1.47-1.11-1.47-.9-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.9 1.53 2.36 1.09 2.93.83.09-.65.35-1.09.63-1.34-2.22-.25-4.55-1.11-4.55-4.94 0-1.09.39-1.98 1.03-2.68-.1-.25-.45-1.27.1-2.65 0 0 .84-.27 2.75 1.02a9.6 9.6 0 0 1 5 0c1.91-1.29 2.75-1.02 2.75-1.02.55 1.38.2 2.4.1 2.65.64.7 1.03 1.59 1.03 2.68 0 3.84-2.34 4.68-4.57 4.93.36.31.68.92.68 1.85l-.01 2.75c0 .27.18.58.69.48A10 10 0 0 0 12 2Z" /></svg>
+            by SilverCityIndigo
+          </a>
+        </div>
 
         <nav className="nav">
           {NAV.map((item, i) =>
@@ -116,11 +122,6 @@ export default function App() {
             )}
             <span className="nav-txt">{theme === 'dark' ? 'Sky mode' : 'Files mode'}</span>
           </button>
-
-          <a className="side-user" href="https://github.com/SilverCityIndigo" target="_blank" rel="noreferrer" title="SilverCityIndigo on GitHub">
-            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 0 0-3.16 19.49c.5.09.68-.22.68-.48l-.01-1.7c-2.78.6-3.37-1.34-3.37-1.34-.45-1.16-1.11-1.47-1.11-1.47-.9-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.9 1.53 2.36 1.09 2.93.83.09-.65.35-1.09.63-1.34-2.22-.25-4.55-1.11-4.55-4.94 0-1.09.39-1.98 1.03-2.68-.1-.25-.45-1.27.1-2.65 0 0 .84-.27 2.75 1.02a9.6 9.6 0 0 1 5 0c1.91-1.29 2.75-1.02 2.75-1.02.55 1.38.2 2.4.1 2.65.64.7 1.03 1.59 1.03 2.68 0 3.84-2.34 4.68-4.57 4.93.36.31.68.92.68 1.85l-.01 2.75c0 .27.18.58.69.48A10 10 0 0 0 12 2Z" /></svg>
-            <span className="nav-txt">SilverCityIndigo</span>
-          </a>
 
           <button className="collapse-btn" onClick={() => setCollapsed(c => !c)} title={collapsed ? 'Expand' : 'Collapse'}>
             <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M15 6l-6 6 6 6" /></svg>

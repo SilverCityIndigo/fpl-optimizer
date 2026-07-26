@@ -75,7 +75,6 @@ function PlayerCard({ p, allPlayers, onAnalytics }) {
         {p.code && imgOk
           ? <img className="pcard-photo" src={PHOTO(p.code)} alt={p.web_name} onError={() => setImgOk(false)} />
           : <Silhouette color={posColor} />}
-        <span className="pcard-code">CASE·{String(p.id).padStart(3, '0')}</span>
       </div>
 
       <div className="pcard-body">
@@ -126,11 +125,12 @@ export default function Players({ onAnalytics }) {
 
   return (
     <div>
-      <div className="eyebrow">Case files · Player dossiers</div>
-      <h1 className="page-title">Player Stats &amp; Prices</h1>
-      <p className="page-sub">Every player on file — form, value, and expected output at a glance. Open a dossier to run it through Analytics.</p>
+      <div className="page-head">
+        <h1 className="page-title">Player Stats &amp; Prices</h1>
+        <p className="page-sub">Form, value, and expected output for every player. Hit Analyse to break one down.</p>
+      </div>
 
-      <div style={{ display: 'flex', gap: '10px', margin: '26px 0', flexWrap: 'wrap', alignItems: 'center' }}>
+      <div className="toolbar">
         <div className="search-box">
           <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.7" strokeLinecap="round"><circle cx="11" cy="11" r="6.5" /><path d="m20 20-3.6-3.6" /></svg>
           <input placeholder="Search player…" value={search} onChange={e => setSearch(e.target.value)} />
@@ -161,13 +161,13 @@ export default function Players({ onAnalytics }) {
       </div>
 
       {loading ? (
-        <p style={{ color: 'var(--text-secondary)' }}>Opening the case files…</p>
+        <p style={{ color: 'var(--text-secondary)' }}>Loading players…</p>
       ) : view === 'cards' ? (
         <>
           <div className="card-grid">
             {filtered.map(p => <PlayerCard key={p.id} p={p} allPlayers={players} onAnalytics={onAnalytics} />)}
           </div>
-          <p className="result-count">{filtered.length} players on file</p>
+          <p className="result-count">{filtered.length} players shown</p>
         </>
       ) : (
         <div className="panel" style={{ overflowX: 'auto' }}>
