@@ -322,10 +322,29 @@ def sync_bootstrap():
             gw.get("average_entry_score"), gw.get("highest_score")
         ))
 
+    # Prune leftovers from previous seasons. FPL reassigns element and team ids
+    # every season, so any row not present in the current bootstrap is last
+    # season's stale copy — leaving it in place makes the same player appear
+    # twice (old id/team + new id/team). Guarded so a bad/empty API response can
+    # never wipe the tables.
+    pruned = ""
+    if len(data["elements"]) > 100 and len(data["teams"]) >= 15:
+        cur_players = [p["id"] for p in data["elements"]]
+        cur_teams = [t["id"] for t in data["teams"]]
+        c.execute("DELETE FROM players WHERE NOT (id = ANY(%s))", (cur_players,))
+        dp = c.rowcount or 0
+        c.execute("DELETE FROM teams WHERE NOT (id = ANY(%s))", (cur_teams,))
+        dt = c.rowcount or 0
+        c.execute("DELETE FROM player_gameweek_history WHERE NOT (player_id = ANY(%s))",
+                  (cur_players,))
+        dh = c.rowcount or 0
+        if dp or dt or dh:
+            pruned = f" 🧹 pruned {dp} stale players / {dt} teams / {dh} history rows."
+
     conn.commit()
     conn.close()
     label = "in-season" if started else "pre-season"
-    print(f"✅ Synced {len(data['elements'])} players, {len(data['teams'])} teams ({label}).")
+    print(f"✅ Synced {len(data['elements'])} players, {len(data['teams'])} teams ({label}).{pruned}")
 
 
 def sync_fixtures():
@@ -353,9 +372,16 @@ def sync_fixtures():
             f.get("team_h_score"), f.get("team_a_score"),
             int(f["finished"]), f.get("kickoff_time")
         ))
+    # Prune last season's fixtures (fixture ids are reassigned each season too).
+    pruned = ""
+    if fixtures:
+        c.execute("DELETE FROM fixtures WHERE NOT (id = ANY(%s))", ([f["id"] for f in fixtures],))
+        df = c.rowcount or 0
+        if df:
+            pruned = f" 🧹 pruned {df} stale fixtures."
     conn.commit()
     conn.close()
-    print(f"✅ Synced {len(fixtures)} fixtures.")
+    print(f"✅ Synced {len(fixtures)} fixtures.{pruned}")
 
 
 # --------------------------------------------------------------------------- #
