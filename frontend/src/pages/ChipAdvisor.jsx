@@ -2,157 +2,121 @@ import { useState, useEffect } from 'react'
 import { getTeamSquad, getChipAdvice } from '../api'
 
 const CHIP_CONFIG = {
-  triple_captain: { emoji: '⚡', label: 'Triple Captain', color: '#ffd700', apiKey: '3xc'      },
-  bench_boost:    { emoji: '🚀', label: 'Bench Boost',    color: '#00b2ff', apiKey: 'bboost'   },
-  wildcard:       { emoji: '🃏', label: 'Wildcard',       color: '#00ff87', apiKey: 'wildcard' },
-  free_hit:       { emoji: '🎯', label: 'Free Hit',       color: '#ff8800', apiKey: 'freehit'  },
+  triple_captain: { label: 'Triple Captain', color: 'var(--gold)',   apiKey: '3xc'      },
+  bench_boost:    { label: 'Bench Boost',    color: 'var(--info)',   apiKey: 'bboost'   },
+  wildcard:       { label: 'Wildcard',       color: 'var(--accent)', apiKey: 'wildcard' },
+  free_hit:       { label: 'Free Hit',       color: '#e0872e',       apiKey: 'freehit'  },
 }
 
 export default function ChipAdvisor({ sharedTeamId, setSharedTeamId, sharedSquadData, setSharedSquadData }) {
   const [loading, setLoading] = useState(false)
-  const [error, setError]     = useState('')
-  const [advice, setAdvice]   = useState(null)
+  const [error, setError] = useState('')
+  const [advice, setAdvice] = useState(null)
   const [chipsAvailable, setChipsAvailable] = useState(null)
 
-  // Auto-load if squad already fetched on another page
   useEffect(() => {
-    if (sharedSquadData && !advice) {
-      loadChipsFromSquad(sharedSquadData)
-    }
+    if (sharedSquadData && !advice) loadChipsFromSquad(sharedSquadData)
   }, [])
 
   async function loadChipsFromSquad(squadData) {
-    setLoading(true)
-    setError('')
+    setLoading(true); setError('')
     try {
       setChipsAvailable(squadData.chips_available || null)
-      const chipRes = await getChipAdvice(squadData.player_ids)
-      setAdvice(chipRes.data)
-    } catch {
-      setError('Failed to get chip advice.')
-    }
+      const res = await getChipAdvice(squadData.player_ids)
+      setAdvice(res.data)
+    } catch { setError('Failed to get chip advice.') }
     setLoading(false)
   }
 
   async function fetchAdvice() {
     if (!sharedTeamId) return
-    setLoading(true)
-    setError('')
+    setLoading(true); setError('')
     try {
-      const squadRes = await getTeamSquad(sharedTeamId)
-      if (squadRes.data.error) { setError(squadRes.data.error); setLoading(false); return }
-      setSharedSquadData(squadRes.data)
-      await loadChipsFromSquad(squadRes.data)
-    } catch {
-      setError('Failed to fetch advice. Check your team ID.')
-    }
+      const res = await getTeamSquad(sharedTeamId)
+      if (res.data.error) { setError(res.data.error); setLoading(false); return }
+      setSharedSquadData(res.data)
+      await loadChipsFromSquad(res.data)
+    } catch { setError('Failed to fetch advice. Check your team ID.') }
     setLoading(false)
   }
 
   const summary = advice?.squad_summary
-  const chips   = advice?.chips
+  const chips = advice?.chips
 
   return (
     <div>
-      <h2 style={{ marginBottom: '8px', color: '#00ff87' }}>🃏 Chip Advisor</h2>
-      <p style={{ color: 'var(--text-secondary)', marginBottom: '24px', fontSize: '14px' }}>
-        Import your squad and get data-driven advice on when to play your chips.
-      </p>
+      <div className="page-head">
+        <h1 className="page-title">Chip Advisor</h1>
+        <p className="page-sub">Import your squad for data-driven advice on when to play each chip.</p>
+      </div>
 
-      <div style={{ background: 'var(--bg-card)', borderRadius: '8px', padding: '20px', marginBottom: '20px' }}>
-        <h3 style={{ marginBottom: '12px', fontSize: '15px' }}>Enter your FPL Team ID</h3>
-        <p style={{ color: 'var(--text-secondary)', fontSize: '13px', marginBottom: '12px' }}>
-          Find your team ID in the URL when viewing your FPL team page: fantasy.premierleague.com/entry/<strong style={{ color: '#00ff87' }}>YOUR_ID</strong>/event/
-        </p>
-        <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-          <input
-            placeholder="e.g. 1234567"
-            value={sharedTeamId}
-            onChange={e => setSharedTeamId(e.target.value)}
-            style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', width: '160px' }}
-          />
-          <button onClick={fetchAdvice} disabled={loading}
-            style={{ padding: '8px 20px', borderRadius: '6px', background: '#00ff87', color: '#000', border: 'none', cursor: 'pointer', fontWeight: 'bold' }}>
-            {loading ? 'Analyzing...' : '🃏 Analyze Chips'}
+      <div className="import-panel">
+        <h3>Enter your FPL Team ID</h3>
+        <p>Find it in your team URL: fantasy.premierleague.com/entry/<strong style={{ color: 'var(--accent)' }}>YOUR_ID</strong>/event/…</p>
+        <div className="import-row">
+          <input className="field" placeholder="e.g. 1234567" value={sharedTeamId} onChange={e => setSharedTeamId(e.target.value)} style={{ width: '170px' }} />
+          <button className="btn-3d" onClick={fetchAdvice} disabled={loading}>
+            <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="8.4" /><circle cx="12" cy="12" r="3.2" /></svg>
+            {loading ? 'Analyzing…' : 'Analyze Chips'}
           </button>
         </div>
-        {error && <p style={{ color: '#ff4444', marginTop: '12px', fontSize: '13px' }}>{error}</p>}
+        {error && <p style={{ color: 'var(--danger)', marginTop: '12px', fontSize: '13px' }}>{error}</p>}
       </div>
 
       {advice && summary && chips && (
         <>
-          <div style={{ background: 'var(--bg-card)', borderRadius: '8px', padding: '16px 20px', marginBottom: '20px', display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-            {[
-              ['Starting 11 Avg', `${summary.avg_starting_pts} pts`],
-              ['Bench Avg',       `${summary.avg_bench_pts} pts`],
-              ['Next GW Avg FDR', summary.avg_fdr_next_gw],
-              ['5-GW Avg FDR',    summary.avg_fdr_5gw],
-            ].map(([label, value]) => (
-              <div key={label} style={{ background: 'var(--bg)', borderRadius: '6px', padding: '10px 16px', textAlign: 'center', flex: '1', minWidth: '120px' }}>
-                <div style={{ color: 'var(--text-secondary)', fontSize: '11px', marginBottom: '4px' }}>{label}</div>
-                <div style={{ color: '#00ff87', fontWeight: 'bold', fontSize: '18px' }}>{value}</div>
-              </div>
+          <div className="tiles" style={{ marginBottom: '18px' }}>
+            {[['Starting 11 Avg', `${summary.avg_starting_pts} pts`], ['Bench Avg', `${summary.avg_bench_pts} pts`], ['Next GW Avg FDR', summary.avg_fdr_next_gw], ['5-GW Avg FDR', summary.avg_fdr_5gw]].map(([k, v]) => (
+              <div key={k} className="tile" style={{ flex: 1, minWidth: '130px' }}><div className="k">{k}</div><div className="v" style={{ color: 'var(--accent)' }}>{v}</div></div>
             ))}
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: '16px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '14px' }}>
             {Object.entries(chips).map(([key, chip]) => {
               const config = CHIP_CONFIG[key]
               const isAvailable = chipsAvailable ? (chipsAvailable[config.apiKey] ?? true) : true
 
               if (!isAvailable) {
                 return (
-                  <div key={key} style={{ background: 'var(--bg)', borderRadius: '12px', padding: '20px', border: '1px solid var(--border)', opacity: 0.5 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
-                      <span style={{ fontSize: '24px', filter: 'grayscale(1)' }}>{config.emoji}</span>
-                      <div>
-                        <div style={{ fontWeight: 'bold', fontSize: '16px', color: '#6b7280' }}>{config.label}</div>
-                        <div style={{ fontSize: '11px', fontWeight: 'bold', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '1px' }}>✅ Already Played</div>
-                      </div>
+                  <div key={key} className="panel panel-pad" style={{ opacity: 0.55 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '9px', marginBottom: '8px' }}>
+                      <span className="dot" style={{ background: 'var(--text-muted)', width: '9px', height: '9px' }} />
+                      <div style={{ fontWeight: 700, fontSize: '15px', color: 'var(--text-secondary)' }}>{config.label}</div>
                     </div>
-                    <p style={{ color: '#4b5563', fontSize: '13px' }}>You've already used this chip this season.</p>
+                    <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: '6px' }}>Already Played</div>
+                    <p className="hint">You've already used this chip this season.</p>
                   </div>
                 )
               }
 
               return (
-                <div key={key} style={{
-                  background: 'var(--bg-card)', borderRadius: '12px', padding: '20px',
-                  border: `1px solid ${chip.recommended ? config.color : 'var(--border)'}`,
-                  boxShadow: chip.recommended ? `0 0 16px ${config.color}22` : 'none'
-                }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
-                    <span style={{ fontSize: '24px' }}>{config.emoji}</span>
-                    <div>
-                      <div style={{ fontWeight: 'bold', fontSize: '16px', color: chip.recommended ? config.color : 'var(--text)' }}>{config.label}</div>
-                      <div style={{ fontSize: '11px', fontWeight: 'bold', color: chip.recommended ? '#00ff87' : '#ff4444', textTransform: 'uppercase', letterSpacing: '1px' }}>
-                        {chip.recommended ? '✅ Recommended Now' : '❌ Not Recommended'}
-                      </div>
-                    </div>
+                <div key={key} className="panel panel-pad" style={{ borderColor: chip.recommended ? config.color : 'var(--line)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '9px', marginBottom: '12px' }}>
+                    <span className="dot" style={{ background: config.color, width: '9px', height: '9px' }} />
+                    <div style={{ fontWeight: 700, fontSize: '15px', color: chip.recommended ? config.color : 'var(--text)' }}>{config.label}</div>
+                    <span style={{ marginLeft: 'auto', fontSize: '10.5px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.07em', color: chip.recommended ? 'var(--accent)' : 'var(--text-muted)' }}>
+                      {chip.recommended ? 'Recommended' : 'Not now'}
+                    </span>
                   </div>
-                  <p style={{ color: '#ccc', fontSize: '13px', lineHeight: '1.6', marginBottom: '12px' }}>{chip.reason}</p>
+                  <p style={{ color: 'var(--text-secondary)', fontSize: '13px', lineHeight: 1.55, marginBottom: '12px' }}>{chip.reason}</p>
                   {key === 'triple_captain' && chip.top_captain && (
-                    <div style={{ background: 'var(--bg)', borderRadius: '6px', padding: '10px', display: 'flex', justifyContent: 'space-between' }}>
-                      <span style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>Top Captain</span>
-                      <span style={{ color: config.color, fontWeight: 'bold', fontSize: '12px' }}>{chip.top_captain} — {chip.projected_points} proj. pts</span>
+                    <div className="tile" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', textAlign: 'left', minWidth: 0 }}>
+                      <span className="hint">Top Captain</span><span style={{ color: config.color, fontWeight: 700, fontSize: '12.5px' }}>{chip.top_captain} — {chip.projected_points} pts</span>
                     </div>
                   )}
                   {key === 'bench_boost' && (
-                    <div style={{ background: 'var(--bg)', borderRadius: '6px', padding: '10px', display: 'flex', justifyContent: 'space-between' }}>
-                      <span style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>Bench Avg</span>
-                      <span style={{ color: config.color, fontWeight: 'bold', fontSize: '12px' }}>{chip.avg_bench_pts} pts per player</span>
+                    <div className="tile" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', textAlign: 'left', minWidth: 0 }}>
+                      <span className="hint">Bench Avg</span><span style={{ color: config.color, fontWeight: 700, fontSize: '12.5px' }}>{chip.avg_bench_pts} pts / player</span>
                     </div>
                   )}
                   {key === 'wildcard' && (
-                    <div style={{ background: 'var(--bg)', borderRadius: '6px', padding: '10px', display: 'flex', justifyContent: 'space-between' }}>
-                      <span style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>Starting 11 Avg</span>
-                      <span style={{ color: config.color, fontWeight: 'bold', fontSize: '12px' }}>{chip.avg_starting_pts} pts per player</span>
+                    <div className="tile" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', textAlign: 'left', minWidth: 0 }}>
+                      <span className="hint">Starting 11 Avg</span><span style={{ color: config.color, fontWeight: 700, fontSize: '12.5px' }}>{chip.avg_starting_pts} pts / player</span>
                     </div>
                   )}
                   {key === 'free_hit' && (
-                    <div style={{ background: 'var(--bg)', borderRadius: '6px', padding: '10px', display: 'flex', justifyContent: 'space-between' }}>
-                      <span style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>Next GW Avg FDR</span>
-                      <span style={{ color: config.color, fontWeight: 'bold', fontSize: '12px' }}>{chip.avg_fdr_next_gw}</span>
+                    <div className="tile" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', textAlign: 'left', minWidth: 0 }}>
+                      <span className="hint">Next GW Avg FDR</span><span style={{ color: config.color, fontWeight: 700, fontSize: '12.5px' }}>{chip.avg_fdr_next_gw}</span>
                     </div>
                   )}
                 </div>

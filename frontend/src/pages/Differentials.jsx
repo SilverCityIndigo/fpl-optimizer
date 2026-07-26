@@ -2,7 +2,10 @@ import { useState, useEffect } from 'react'
 import { getDifferentials } from '../api'
 
 const POSITIONS = ['All', 'GKP', 'DEF', 'MID', 'FWD']
-const FDR_COLORS = { 1: '#00ff87', 2: '#7fff00', 3: '#ffd700', 4: '#ff8800', 5: '#ff4444' }
+const POS_COLORS = { GKP: 'var(--gold)', DEF: 'var(--info)', MID: 'var(--accent)', FWD: 'var(--danger)' }
+const FDR_COLORS = { 1: 'var(--accent)', 2: 'var(--info)', 3: 'var(--gold)', 4: '#e0872e', 5: 'var(--danger)' }
+const POS_NAMES = { GKP: 'Goalkeepers', DEF: 'Defenders', MID: 'Midfielders', FWD: 'Forwards' }
+const PHOTO = code => `https://resources.premierleague.com/premierleague/photos/players/110x140/p${code}.png`
 
 export default function Differentials() {
   const [players, setPlayers] = useState([])
@@ -10,120 +13,60 @@ export default function Differentials() {
   const [position, setPosition] = useState('All')
 
   useEffect(() => {
-    getDifferentials()
-      .then(res => setPlayers(res.data))
-      .finally(() => setLoading(false))
+    getDifferentials().then(res => setPlayers(res.data)).finally(() => setLoading(false))
   }, [])
 
-  const filtered = position === 'All'
-    ? players
-    : players.filter(p => p.position === position)
-
-  // Group by position for display
+  const filtered = position === 'All' ? players : players.filter(p => p.position === position)
   const positions = position === 'All' ? ['GKP', 'DEF', 'MID', 'FWD'] : [position]
 
   return (
     <div>
-      <h2 style={{ marginBottom: '8px', color: '#00ff87' }}>🔍 Differential Scout</h2>
-      <p style={{ color: 'var(--text-secondary)', marginBottom: '24px', fontSize: '14px' }}>
-        Differentials: underrated, lower-ownership players. Find the edge before anyone else does. 
-      </p>
+      <div className="page-head">
+        <h1 className="page-title">Differential Scout</h1>
+        <p className="page-sub">Underrated, lower-ownership players — find the edge before anyone else does.</p>
+      </div>
 
-      {/* Position filter */}
-      <div style={{ display: 'flex', gap: '10px', marginBottom: '28px', flexWrap: 'wrap' }}>
-        {POSITIONS.map(pos => (
-          <button key={pos} onClick={() => setPosition(pos)}
-            style={{
-              padding: '8px 16px', borderRadius: '6px',
-              border: '1px solid #00ff87',
-              background: position === pos ? '#00ff87' : 'transparent',
-              color: position === pos ? '#000' : 'var(--text)',
-              cursor: 'pointer', fontWeight: position === pos ? 'bold' : 'normal'
-            }}>
-            {pos}
-          </button>
-        ))}
+      <div className="toolbar">
+        <div className="seg">
+          {POSITIONS.map(pos => (
+            <button key={pos} className={position === pos ? 'on' : ''} onClick={() => setPosition(pos)}>{pos}</button>
+          ))}
+        </div>
       </div>
 
       {loading ? (
-        <p style={{ color: 'var(--text-secondary)' }}>Scouting differentials...</p>
+        <p className="hint">Scouting differentials…</p>
       ) : filtered.length === 0 ? (
-        <p style={{ color: 'var(--text-secondary)' }}>No differentials found for this position right now.</p>
+        <p className="hint">No differentials found for this position right now.</p>
       ) : (
         positions.map(pos => {
           const posPlayers = filtered.filter(p => p.position === pos).slice(0, 5)
           if (posPlayers.length === 0) return null
 
-          const posColors = { GKP: '#f5a623', DEF: '#00b2ff', MID: '#00ff87', FWD: '#ff4444' }
-
           return (
-            <div key={pos} style={{ marginBottom: '32px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
-                <span style={{
-                  background: posColors[pos], color: '#000',
-                  fontSize: '12px', fontWeight: 'bold',
-                  padding: '4px 10px', borderRadius: '4px'
-                }}>{pos}</span>
-                <h3 style={{ margin: 0, fontSize: '16px' }}>
-                  {pos === 'GKP' ? 'Goalkeepers' : pos === 'DEF' ? 'Defenders' : pos === 'MID' ? 'Midfielders' : 'Forwards'}
-                </h3>
-                <span style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>{posPlayers.length} differential{posPlayers.length !== 1 ? 's' : ''} found</span>
+            <div key={pos} style={{ marginBottom: '26px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px' }}>
+                <span className="pos-pill" style={{ background: POS_COLORS[pos] }}>{pos}</span>
+                <h3 className="section-title">{POS_NAMES[pos]}</h3>
+                <span className="hint">{posPlayers.length} found</span>
               </div>
 
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div className="list">
                 {posPlayers.map((p, i) => (
-                  <div key={p.id} style={{
-                    background: 'var(--bg-card)',
-                    borderRadius: '10px',
-                    padding: '16px',
-                    border: `1px solid ${i === 0 ? posColors[pos] : 'var(--border)'}`,
-                    display: 'flex',
-                    gap: '16px',
-                    alignItems: 'center',
-                    flexWrap: 'wrap'
-                  }}>
-                    {/* Rank */}
-                    <div style={{ color: i === 0 ? posColors[pos] : 'var(--text-secondary)', fontWeight: 'bold', fontSize: '20px', minWidth: '28px' }}>
-                      #{i + 1}
+                  <div key={p.id} className={`list-row${i === 0 ? ' lead' : ''}`}>
+                    <div className={`rank${i === 0 ? ' lead' : ''}`}>#{i + 1}</div>
+                    {p.code && <img src={PHOTO(p.code)} alt={p.web_name} style={{ height: '58px', objectFit: 'contain' }} onError={e => { e.target.style.display = 'none' }} />}
+                    <div style={{ flex: 1, minWidth: '190px' }}>
+                      <div style={{ fontWeight: 700, fontSize: '15px' }}>{p.web_name}</div>
+                      <div style={{ color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '6px' }}>{p.team_name} · £{p.price}m</div>
+                      <div style={{ color: 'var(--text-secondary)', fontSize: '12.5px', lineHeight: 1.45 }}>{p.why}</div>
                     </div>
-
-                    {/* Photo */}
-                    {p.code && (
-                      <img
-                        src={`https://resources.premierleague.com/premierleague/photos/players/110x140/p${p.code}.png`}
-                        alt={p.web_name}
-                        style={{ height: '65px', objectFit: 'contain' }}
-                        onError={e => e.target.style.display = 'none'}
-                      />
-                    )}
-
-                    {/* Name + why */}
-                    <div style={{ flex: 1, minWidth: '180px' }}>
-                      <div style={{ fontWeight: 'bold', fontSize: '16px', marginBottom: '2px' }}>{p.web_name}</div>
-                      <div style={{ color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '8px' }}>{p.team_name} · £{p.price}m</div>
-                      <div style={{ color: '#ccc', fontSize: '13px', fontStyle: 'italic' }}>💡 {p.why}</div>
-                    </div>
-
-                    {/* Stats */}
-                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                      {[
-                        ['Form', p.form, '#ffd700'],
-                        ['PPG', p.points_per_game, 'var(--text)'],
-                        ['Owned', `${p.selected_by_percent}%`, '#00d4ff'],
-                      ].map(([label, value, color]) => (
-                        <div key={label} style={{ background: 'var(--bg)', borderRadius: '6px', padding: '6px 10px', textAlign: 'center', minWidth: '55px' }}>
-                          <div style={{ color: 'var(--text-secondary)', fontSize: '10px', marginBottom: '2px' }}>{label}</div>
-                          <div style={{ color, fontWeight: 'bold', fontSize: '14px' }}>{value}</div>
-                        </div>
-                      ))}
-                      <div style={{ background: 'var(--bg)', borderRadius: '6px', padding: '6px 10px', textAlign: 'center', minWidth: '90px' }}>
-                        <div style={{ color: 'var(--text-secondary)', fontSize: '10px', marginBottom: '2px' }}>Next Fixture</div>
-                        <div style={{ color: FDR_COLORS[p.fdr] || 'var(--text)', fontWeight: 'bold', fontSize: '12px' }}>{p.fixture}</div>
-                      </div>
-                      <div style={{ background: 'var(--bg)', borderRadius: '6px', padding: '6px 10px', textAlign: 'center', minWidth: '70px' }}>
-                        <div style={{ color: 'var(--text-secondary)', fontSize: '10px', marginBottom: '2px' }}>FDR</div>
-                        <div style={{ color: FDR_COLORS[p.fdr] || 'var(--text)', fontWeight: 'bold', fontSize: '14px' }}>{p.fdr} · {p.fdr_label}</div>
-                      </div>
+                    <div className="tiles">
+                      <div className="tile"><div className="k">Form</div><div className="v" style={{ color: 'var(--gold)' }}>{p.form}</div></div>
+                      <div className="tile"><div className="k">PPG</div><div className="v">{p.points_per_game}</div></div>
+                      <div className="tile"><div className="k">Owned</div><div className="v" style={{ color: 'var(--info)' }}>{p.selected_by_percent}%</div></div>
+                      <div className="tile" style={{ minWidth: '90px' }}><div className="k">Next</div><div className="v" style={{ color: FDR_COLORS[p.fdr] || 'var(--text)', fontSize: '12px' }}>{p.fixture}</div></div>
+                      <div className="tile"><div className="k">FDR</div><div className="v" style={{ color: FDR_COLORS[p.fdr] || 'var(--text)' }}>{p.fdr}</div></div>
                     </div>
                   </div>
                 ))}

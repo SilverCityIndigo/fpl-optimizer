@@ -2,32 +2,25 @@ import { useState, useEffect } from 'react'
 import { getTeamSquad, getTransferSuggestions, getHitAnalysis } from '../api'
 import pitchImg from '../assets/fpl_pitch.jpg'
 
+const PHOTO = code => `https://resources.premierleague.com/premierleague/photos/players/110x140/p${code}.png`
+
 function XGStats({ player }) {
   const xgi = parseFloat(player.xgi_per90 || 0)
-  const xg  = parseFloat(player.xg_per90  || 0)
-  const xa  = parseFloat(player.xa_per90  || 0)
-
+  const xg = parseFloat(player.xg_per90 || 0)
+  const xa = parseFloat(player.xa_per90 || 0)
   if (!xgi || player.position === 'GKP' || player.position === 'DEF') return null
-
-  const color = xgi >= 0.6 ? '#00ff87' : xgi >= 0.35 ? '#ffd700' : '#ff8800'
+  const color = xgi >= 0.6 ? 'var(--accent)' : xgi >= 0.35 ? 'var(--gold)' : '#e0872e'
   const fmt = v => v.toFixed(2)
-
   return (
     <div style={{ marginTop: '8px' }}>
-      <div style={{ color: 'var(--text-secondary)', fontSize: '10px', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>xG Stats / 90</div>
+      <div className="hint" style={{ marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '.06em', fontSize: '10px' }}>xG stats / 90</div>
       <div style={{ display: 'flex', gap: '6px' }}>
         {[['xG', xg], ['xA', xa], ['xGI', xgi]].map(([label, val]) => (
-          <div key={label} style={{
-            background: 'var(--bg)', border: `1px solid ${label === 'xGI' ? color + '55' : 'var(--border)'}`,
-            borderRadius: '5px', padding: '4px 8px', textAlign: 'center', minWidth: '44px'
-          }}>
-            <div style={{ color: label === 'xGI' ? color : 'var(--text)', fontWeight: 'bold', fontSize: '13px' }}>{fmt(val)}</div>
-            <div style={{ color: '#6b7280', fontSize: '10px' }}>{label}</div>
+          <div key={label} className="tile" style={{ minWidth: '44px', padding: '5px 8px', borderColor: label === 'xGI' ? `color-mix(in srgb, ${color} 45%, var(--line))` : 'var(--line)' }}>
+            <div className="v" style={{ fontSize: '13px', color: label === 'xGI' ? color : 'var(--text)' }}>{fmt(val)}</div>
+            <div className="k">{label}</div>
           </div>
         ))}
-      </div>
-      <div style={{ color: '#6b7280', fontSize: '10px', marginTop: '3px' }}>
-        {xgi > 0 ? '⚡ xGI blended into projection' : ''}
       </div>
     </div>
   )
@@ -39,33 +32,28 @@ function PitchPlayerCard({ player, isBench }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: '100px' }}>
       <div style={{
-        width: '72px', height: '72px', borderRadius: '50%', overflow: 'hidden',
-        background: 'rgba(0,0,0,0.4)', border: `3px solid ${isBench ? '#4b5563' : 'var(--text)'}`,
+        width: '68px', height: '68px', borderRadius: '50%', overflow: 'hidden',
+        background: 'rgba(0,0,0,0.4)', border: `3px solid ${isBench ? '#4b5563' : '#e8eef8'}`,
         marginBottom: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center',
         boxShadow: isBench ? 'none' : '0 3px 10px rgba(0,0,0,0.6)',
       }}>
         {player.code ? (
-          <img src={`https://resources.premierleague.com/premierleague/photos/players/110x140/p${player.code}.png`}
-            alt={player.web_name}
+          <img src={PHOTO(player.code)} alt={player.web_name}
             style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'top' }}
-            onError={e => { e.target.style.display = 'none'; e.target.parentNode.innerHTML = `<span style="font-size:28px">👤</span>` }} />
-        ) : <span style={{ fontSize: '28px' }}>👤</span>}
+            onError={e => { e.target.style.display = 'none'; e.target.parentNode.innerHTML = `<span style="font-size:22px;color:#cbd5e1">${player.web_name?.[0] || '·'}</span>` }} />
+        ) : <span style={{ fontSize: '22px', color: '#cbd5e1' }}>{player.web_name?.[0] || '·'}</span>}
       </div>
       <div style={{
-        background: 'rgba(10,10,20,0.85)', color: 'var(--text)', fontSize: '11px', fontWeight: 'bold',
+        background: 'rgba(10,10,20,0.85)', color: '#fff', fontSize: '11px', fontWeight: 700,
         padding: '3px 8px', borderRadius: '4px', maxWidth: '100px', textAlign: 'center',
         whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginBottom: '3px',
         border: '1px solid rgba(255,255,255,0.15)',
       }}>{player.web_name}</div>
-      <div style={{ color: 'var(--text)', fontSize: '10px', fontWeight: '600', marginBottom: '3px', textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}>{player.team_name}</div>
+      <div style={{ color: '#fff', fontSize: '10px', fontWeight: 600, marginBottom: '3px', textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}>{player.team_name}</div>
       {!isBench && (
         <div style={{ display: 'flex', gap: '3px', alignItems: 'center' }}>
-          {fixture && (
-            <div style={{ background: 'rgba(10,10,20,0.85)', color: '#00ff87', fontSize: '9px', fontWeight: 'bold', padding: '2px 5px', borderRadius: '3px', border: '1px solid rgba(0,255,135,0.3)', whiteSpace: 'nowrap' }}>{fixture}</div>
-          )}
-          {pts != null && (
-            <div style={{ background: 'rgba(10,10,20,0.85)', color: '#ffd700', fontSize: '9px', fontWeight: 'bold', padding: '2px 5px', borderRadius: '3px', border: '1px solid rgba(255,215,0,0.3)', whiteSpace: 'nowrap' }}>{pts} pts</div>
-          )}
+          {fixture && <div style={{ background: 'rgba(10,10,20,0.85)', color: 'var(--accent)', fontSize: '9px', fontWeight: 700, padding: '2px 5px', borderRadius: '3px', border: '1px solid rgba(49,224,164,0.4)', whiteSpace: 'nowrap' }}>{fixture}</div>}
+          {pts != null && <div style={{ background: 'rgba(10,10,20,0.85)', color: '#ffd257', fontSize: '9px', fontWeight: 700, padding: '2px 5px', borderRadius: '3px', border: '1px solid rgba(255,210,87,0.4)', whiteSpace: 'nowrap' }}>{pts} pts</div>}
         </div>
       )}
     </div>
@@ -78,8 +66,8 @@ function PitchView({ squad, picks }) {
     return player ? { ...player, pickPosition: pick.position, isSub: pick.is_sub } : null
   }).filter(Boolean)
   const starters = ordered.filter(p => !p.isSub)
-  const bench    = ordered.filter(p => p.isSub)
-  const gkp  = starters.filter(p => p.position === 'GKP')
+  const bench = ordered.filter(p => p.isSub)
+  const gkp = starters.filter(p => p.position === 'GKP')
   const defs = starters.filter(p => p.position === 'DEF')
   const mids = starters.filter(p => p.position === 'MID')
   const fwds = starters.filter(p => p.position === 'FWD')
@@ -90,53 +78,42 @@ function PitchView({ squad, picks }) {
     </div>
   )
   return (
-    <div style={{ borderRadius: '12px', overflow: 'hidden', marginBottom: '20px' }}>
-      <div style={{ background: 'rgba(0,0,0,0.7)', padding: '8px 16px', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px', borderBottom: '1px solid rgba(255,215,0,0.2)' }}>
-        <span style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>Projected GW Points (Starting 11):</span>
-        <span style={{ color: '#ffd700', fontWeight: 'bold', fontSize: '16px' }}>{totalProj.toFixed(1)} pts</span>
+    <div style={{ borderRadius: '12px', overflow: 'hidden', marginBottom: '18px', border: '1px solid var(--line)' }}>
+      <div style={{ background: 'rgba(0,0,0,0.7)', padding: '8px 16px', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px' }}>
+        <span style={{ color: '#cbd5e1', fontSize: '12px' }}>Projected GW points (Starting 11):</span>
+        <span style={{ color: '#ffd257', fontWeight: 700, fontSize: '16px' }}>{totalProj.toFixed(1)} pts</span>
       </div>
-      <div style={{ background: `url(${pitchImg}) top center/cover no-repeat`, display: 'flex', flexDirection: 'column', justifyContent: 'space-evenly', minHeight: '580px', padding: '12px 0', boxSizing: 'border-box' }}>
-        <Row players={gkp} />
-        <Row players={defs} />
-        <Row players={mids} />
-        <Row players={fwds} />
+      <div style={{ background: `url(${pitchImg}) top center/cover no-repeat`, display: 'flex', flexDirection: 'column', justifyContent: 'space-evenly', minHeight: '520px', padding: '12px 0', boxSizing: 'border-box' }}>
+        <Row players={gkp} /><Row players={defs} /><Row players={mids} /><Row players={fwds} />
       </div>
-      <div style={{ background: '#111827', borderTop: '2px dashed #374151', padding: '12px 8px 16px' }}>
-        <div style={{ color: '#9ca3af', fontSize: '11px', textAlign: 'center', marginBottom: '10px', textTransform: 'uppercase', letterSpacing: '1px' }}>Bench</div>
-        <Row players={bench} isBench={true} />
+      <div style={{ background: '#0d1422', borderTop: '2px dashed #374151', padding: '12px 8px 16px' }}>
+        <div style={{ color: '#9ca3af', fontSize: '11px', textAlign: 'center', marginBottom: '10px', textTransform: 'uppercase', letterSpacing: '.08em' }}>Bench</div>
+        <Row players={bench} isBench />
       </div>
     </div>
   )
 }
 
 export default function Transfers({ sharedTeamId, setSharedTeamId, sharedSquadData, setSharedSquadData }) {
-  const [budgetItb, setBudgetItb]         = useState(0)
+  const [budgetItb, setBudgetItb] = useState(0)
   const [freeTransfers, setFreeTransfers] = useState(1)
-  const [squad, setSquad]                 = useState([])
-  const [squadIds, setSquadIds]           = useState([])
-  const [picks, setPicks]                 = useState([])
-  const [nextGw, setNextGw]               = useState(null)
-  const [suggestions, setSuggestions]     = useState([])
-  const [loading, setLoading]             = useState(false)
-  const [step, setStep]                   = useState(1)
-  const [error, setError]                 = useState('')
-  const [hitAnalysis, setHitAnalysis]     = useState(null)
-  const [viewMode, setViewMode]           = useState('pitch')
+  const [squad, setSquad] = useState([])
+  const [squadIds, setSquadIds] = useState([])
+  const [picks, setPicks] = useState([])
+  const [nextGw, setNextGw] = useState(null)
+  const [suggestions, setSuggestions] = useState([])
+  const [loading, setLoading] = useState(false)
+  const [step, setStep] = useState(1)
+  const [error, setError] = useState('')
+  const [hitAnalysis, setHitAnalysis] = useState(null)
+  const [viewMode, setViewMode] = useState('pitch')
 
-  const td = { padding: '10px 12px', borderBottom: '1px solid var(--bg-card)', fontSize: '14px' }
-  const th = { padding: '10px 12px', textAlign: 'left', borderBottom: '1px solid var(--border)', color: 'var(--text-secondary)', fontSize: '13px' }
-
-  // Auto-load if squad already fetched on another page
   useEffect(() => {
-    if (sharedSquadData && squad.length === 0) {
-      applySquadData(sharedSquadData)
-    }
+    if (sharedSquadData && squad.length === 0) applySquadData(sharedSquadData)
   }, [])
 
   function applySquadData(data) {
-    setSquad(data.players)
-    setSquadIds(data.player_ids)
-    setPicks(data.picks || [])
+    setSquad(data.players); setSquadIds(data.player_ids); setPicks(data.picks || [])
     setNextGw(data.next_gw || null)
     if (data.bank !== undefined) setBudgetItb(data.bank)
     if (data.transfers_left !== undefined) setFreeTransfers(data.transfers_left)
@@ -145,176 +122,133 @@ export default function Transfers({ sharedTeamId, setSharedTeamId, sharedSquadDa
 
   async function fetchSquad() {
     if (!sharedTeamId) return
-    setLoading(true)
-    setError('')
+    setLoading(true); setError('')
     try {
       const res = await getTeamSquad(sharedTeamId)
       if (res.data.error) { setError(res.data.error); setLoading(false); return }
-      setSharedSquadData(res.data)
-      applySquadData(res.data)
-    } catch {
-      setError('Failed to fetch team. Make sure your team ID is correct.')
-    }
+      setSharedSquadData(res.data); applySquadData(res.data)
+    } catch { setError('Failed to fetch team. Make sure your team ID is correct.') }
     setLoading(false)
   }
 
   async function fetchSuggestions() {
-    setLoading(true)
-    setError('')
+    setLoading(true); setError('')
     try {
       const [transferRes, hitRes] = await Promise.all([
         getTransferSuggestions(squadIds, budgetItb, freeTransfers),
         getHitAnalysis(squadIds, budgetItb, freeTransfers)
       ])
-      setSuggestions(transferRes.data)
-      setHitAnalysis(hitRes.data)
-      setStep(3)
-    } catch {
-      setError('Failed to get suggestions.')
-    }
+      setSuggestions(transferRes.data); setHitAnalysis(hitRes.data); setStep(3)
+    } catch { setError('Failed to get suggestions.') }
     setLoading(false)
   }
 
   function getValueColor(val) {
-    if (val > 1.5) return '#00ff87'
-    if (val > 0.5) return '#ffd700'
-    return '#ff4444'
+    if (val > 1.5) return 'var(--accent)'
+    if (val > 0.5) return 'var(--gold)'
+    return 'var(--danger)'
   }
 
   const gwLabel = nextGw ? `GW${nextGw}` : 'GW'
-  const toggleBtn = (mode, label) => (
-    <button onClick={() => setViewMode(mode)} style={{
-      padding: '6px 16px', borderRadius: '6px', border: '1px solid var(--border)',
-      background: viewMode === mode ? '#00ff87' : 'var(--bg)',
-      color: viewMode === mode ? '#000' : 'var(--text-secondary)',
-      fontWeight: viewMode === mode ? 'bold' : 'normal',
-      cursor: 'pointer', fontSize: '13px',
-    }}>{label}</button>
-  )
 
   return (
     <div>
-      <h2 style={{ marginBottom: '8px', color: '#00ff87' }}>Transfer Recommendations</h2>
-      <p style={{ color: 'var(--text-secondary)', marginBottom: '24px', fontSize: '14px' }}>
-        Import your FPL squad and get data-driven transfer suggestions ranked by projected points gain.
-      </p>
+      <div className="page-head">
+        <h1 className="page-title">Transfer Recommendations</h1>
+        <p className="page-sub">Import your squad for data-driven transfer suggestions ranked by projected points gain.</p>
+      </div>
 
-      <div style={{ background: 'var(--bg-card)', borderRadius: '8px', padding: '20px', marginBottom: '20px' }}>
-        <h3 style={{ marginBottom: '16px', fontSize: '15px' }}>Enter your FPL Team ID</h3>
-        <p style={{ color: 'var(--text-secondary)', fontSize: '13px', marginBottom: '12px' }}>
-          Find your team ID in the URL when viewing your FPL team page: fantasy.premierleague.com/entry/<strong style={{ color: '#00ff87' }}>YOUR_ID</strong>/event/...
-        </p>
-        <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
-          <input
-            placeholder="e.g. 1234567"
-            value={sharedTeamId}
-            onChange={e => setSharedTeamId(e.target.value)}
-            style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', width: '160px' }}
-          />
-          <button onClick={fetchSquad} disabled={loading}
-            style={{ padding: '8px 20px', borderRadius: '6px', background: '#00ff87', color: '#000', border: 'none', cursor: 'pointer', fontWeight: 'bold' }}>
-            {loading ? 'Loading...' : 'Import Squad'}
+      <div className="import-panel">
+        <h3>Enter your FPL Team ID</h3>
+        <p>Find it in your team URL: fantasy.premierleague.com/entry/<strong style={{ color: 'var(--accent)' }}>YOUR_ID</strong>/event/…</p>
+        <div className="import-row">
+          <input className="field" placeholder="e.g. 1234567" value={sharedTeamId} onChange={e => setSharedTeamId(e.target.value)} style={{ width: '170px' }} />
+          <button className="btn-3d" onClick={fetchSquad} disabled={loading}>
+            <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="M12 4v11M7 10l5 5 5-5M5 20h14" /></svg>
+            {loading ? 'Loading…' : 'Import Squad'}
           </button>
         </div>
-        {error && <p style={{ color: '#ff4444', marginTop: '12px', fontSize: '13px' }}>{error}</p>}
+        {error && <p style={{ color: 'var(--danger)', marginTop: '12px', fontSize: '13px' }}>{error}</p>}
       </div>
 
       {step >= 2 && squad.length > 0 && (
-        <div style={{ background: 'var(--bg-card)', borderRadius: '8px', padding: '20px', marginBottom: '20px' }}>
+        <div className="panel panel-pad" style={{ marginBottom: '18px' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px', flexWrap: 'wrap', gap: '12px' }}>
-            <h3 style={{ fontSize: '15px', margin: 0 }}>Step 2: Your Current Squad</h3>
-            <div style={{ display: 'flex', gap: '8px' }}>
-              {toggleBtn('pitch', '⚽ Pitch View')}
-              {toggleBtn('list',  '☰ List View')}
+            <h3 className="section-title">Your Current Squad</h3>
+            <div className="seg">
+              <button className={viewMode === 'pitch' ? 'on' : ''} onClick={() => setViewMode('pitch')}>Pitch</button>
+              <button className={viewMode === 'list' ? 'on' : ''} onClick={() => setViewMode('list')}>List</button>
             </div>
           </div>
 
           {viewMode === 'pitch' && picks.length > 0 ? (
             <PitchView squad={squad} picks={picks} />
           ) : (
-            <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '20px' }}>
-              <thead style={{ background: 'var(--bg)' }}>
-                <tr>
-                  <th style={th}>Player</th><th style={th}>Team</th><th style={th}>Pos</th>
-                  <th style={th}>Price</th><th style={th}>Pts</th><th style={th}>Form</th>
-                  <th style={th}>PPG</th><th style={{ ...th, color: '#ffd700' }}>{gwLabel} Proj. Pts</th>
-                </tr>
-              </thead>
-              <tbody>
-                {squad.map(p => (
-                  <tr key={p.id} onMouseEnter={e => e.currentTarget.style.background = 'var(--hover)'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                    <td style={{ ...td, fontWeight: 'bold' }}>{p.web_name}</td>
-                    <td style={{ ...td, color: 'var(--text-secondary)' }}>{p.team_name}</td>
-                    <td style={td}><span style={{ background: 'var(--border)', padding: '2px 8px', borderRadius: '4px', fontSize: '12px' }}>{p.position}</span></td>
-                    <td style={{ ...td, color: '#00ff87' }}>£{p.price}m</td>
-                    <td style={td}>{p.total_points}</td>
-                    <td style={td}>{p.form}</td>
-                    <td style={td}>{p.points_per_game}</td>
-                    <td style={{ ...td, color: '#ffd700', fontWeight: 'bold' }}>{p.projected_points != null ? p.projected_points : '—'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <div style={{ overflowX: 'auto', marginBottom: '16px' }}>
+              <table className="data-table">
+                <thead>
+                  <tr>{['Player', 'Team', 'Pos', 'Price', 'Pts', 'Form', 'PPG', `${gwLabel} Proj`].map(h => <th key={h}>{h}</th>)}</tr>
+                </thead>
+                <tbody>
+                  {squad.map(p => (
+                    <tr key={p.id}>
+                      <td style={{ fontWeight: 700 }}>{p.web_name}</td>
+                      <td style={{ color: 'var(--text-secondary)' }}>{p.team_name}</td>
+                      <td><span className="pos-pill" style={{ background: 'var(--surface-3)', color: 'var(--text)' }}>{p.position}</span></td>
+                      <td style={{ color: 'var(--accent)', fontWeight: 700 }}>£{p.price}m</td>
+                      <td>{p.total_points}</td><td>{p.form}</td><td>{p.points_per_game}</td>
+                      <td style={{ color: 'var(--gold)', fontWeight: 700 }}>{p.projected_points != null ? p.projected_points : '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
 
-          <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap', marginBottom: '16px' }}>
+          <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap', marginBottom: '16px', alignItems: 'flex-end' }}>
             <div>
-              <label style={{ color: 'var(--text-secondary)', fontSize: '13px', display: 'block', marginBottom: '4px' }}>Budget in the bank (£m)</label>
-              <input type="number" step="0.1" min="0" value={budgetItb}
-                onChange={e => setBudgetItb(parseFloat(e.target.value) || 0)}
-                style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', width: '120px' }} />
+              <label className="hint" style={{ display: 'block', marginBottom: '5px' }}>Budget in the bank (£m)</label>
+              <input type="number" step="0.1" min="0" value={budgetItb} onChange={e => setBudgetItb(parseFloat(e.target.value) || 0)} className="field" style={{ width: '120px' }} />
             </div>
             <div>
-              <label style={{ color: 'var(--text-secondary)', fontSize: '13px', display: 'block', marginBottom: '4px' }}>Free transfers</label>
-              <select value={freeTransfers} onChange={e => setFreeTransfers(parseInt(e.target.value))}
-                style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)' }}>
-                {[1,2,3,4,5].map(n => <option key={n} value={n}>{n}</option>)}
+              <label className="hint" style={{ display: 'block', marginBottom: '5px' }}>Free transfers</label>
+              <select value={freeTransfers} onChange={e => setFreeTransfers(parseInt(e.target.value))} className="field">
+                {[1, 2, 3, 4, 5].map(n => <option key={n} value={n}>{n}</option>)}
               </select>
             </div>
           </div>
 
-          <button onClick={fetchSuggestions} disabled={loading}
-            style={{ padding: '10px 24px', borderRadius: '6px', background: '#00ff87', color: '#000', border: 'none', cursor: 'pointer', fontWeight: 'bold', fontSize: '15px' }}>
-            {loading ? 'Analyzing...' : '🔍 Get Transfer Suggestions'}
+          <button className="btn-3d" onClick={fetchSuggestions} disabled={loading}>
+            <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="6.5" /><path d="m20 20-3.6-3.6" /></svg>
+            {loading ? 'Analyzing…' : 'Get Transfer Suggestions'}
           </button>
         </div>
       )}
 
       {step >= 3 && suggestions.length > 0 && (
-        <div style={{ background: 'var(--bg-card)', borderRadius: '8px', padding: '20px' }}>
-          <h3 style={{ marginBottom: '16px', fontSize: '15px' }}>Step 3: Recommended Transfers</h3>
+        <div className="panel panel-pad">
+          <h3 className="section-title" style={{ marginBottom: '16px' }}>Recommended Transfers</h3>
 
           {hitAnalysis && (
-            <div style={{
-              background: hitAnalysis.take_hit ? '#0d2b1a' : '#2b0d0d',
-              border: `1px solid ${hitAnalysis.take_hit ? '#00ff87' : '#ff4444'}`,
-              borderRadius: '8px', padding: '20px', marginBottom: '20px'
-            }}>
-              <h3 style={{ color: hitAnalysis.take_hit ? '#00ff87' : '#ff4444', marginBottom: '12px' }}>
-                {hitAnalysis.take_hit ? '✅ Recommendation: Take the -4 Hit' : '❌ Recommendation: No Hit Needed'}
+            <div className="panel panel-pad" style={{ marginBottom: '18px', borderColor: hitAnalysis.take_hit ? 'var(--accent)' : 'var(--danger)', background: hitAnalysis.take_hit ? 'color-mix(in srgb, var(--accent) 8%, var(--surface))' : 'color-mix(in srgb, var(--danger) 8%, var(--surface))' }}>
+              <h3 style={{ color: hitAnalysis.take_hit ? 'var(--accent)' : 'var(--danger)', marginBottom: '10px', fontSize: '16px' }}>
+                {hitAnalysis.take_hit ? 'Recommendation: Take the −4 Hit' : 'Recommendation: No Hit Needed'}
               </h3>
-              <p style={{ color: 'var(--text)', marginBottom: '16px', fontSize: '15px' }}>{hitAnalysis.recommendation}</p>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', marginBottom: '16px' }}>
-                {[
-                  ['Best 1 Transfer', `+${hitAnalysis.gain_1_transfer} pts`, '#ffd700'],
-                  ['Best 2 Transfers', `+${hitAnalysis.gain_2_transfers} pts`, '#ffd700'],
-                  ['2 Transfers - Hit', `+${hitAnalysis.gain_2_after_hit} pts`, hitAnalysis.take_hit ? '#00ff87' : '#ff4444']
-                ].map(([label, value, color]) => (
-                  <div key={label} style={{ background: 'var(--bg)', borderRadius: '6px', padding: '12px', textAlign: 'center' }}>
-                    <div style={{ color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '4px' }}>{label}</div>
-                    <div style={{ color, fontSize: '22px', fontWeight: 'bold' }}>{value}</div>
-                  </div>
+              <p style={{ color: 'var(--text)', marginBottom: '16px', fontSize: '14px' }}>{hitAnalysis.recommendation}</p>
+              <div className="tiles" style={{ marginBottom: '16px' }}>
+                {[['Best 1 Transfer', `+${hitAnalysis.gain_1_transfer}`, 'var(--gold)'], ['Best 2 Transfers', `+${hitAnalysis.gain_2_transfers}`, 'var(--gold)'], ['2 Transfers − Hit', `+${hitAnalysis.gain_2_after_hit}`, hitAnalysis.take_hit ? 'var(--accent)' : 'var(--danger)']].map(([k, v, c]) => (
+                  <div key={k} className="tile" style={{ flex: 1, minWidth: '130px' }}><div className="k">{k}</div><div className="v" style={{ color: c, fontSize: '20px' }}>{v} pts</div></div>
                 ))}
               </div>
-              <h4 style={{ color: 'var(--text-secondary)', marginBottom: '12px', fontSize: '13px', textTransform: 'uppercase', letterSpacing: '1px' }}>Multi-Week Plan</h4>
+              <div className="hint" style={{ textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: '10px' }}>Multi-week plan</div>
               <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
                 {hitAnalysis.multi_week_plan.map((week, i) => (
-                  <div key={i} style={{ background: 'var(--bg)', borderRadius: '6px', padding: '12px', flex: '1', minWidth: '200px' }}>
-                    <div style={{ color: '#00ff87', fontSize: '12px', fontWeight: 'bold', marginBottom: '6px' }}>{week.week}</div>
-                    <div style={{ color: 'var(--text)', fontSize: '13px', marginBottom: '8px' }}>{week.action}</div>
+                  <div key={i} className="tile" style={{ flex: 1, minWidth: '200px', textAlign: 'left', padding: '12px' }}>
+                    <div style={{ color: 'var(--accent)', fontSize: '12px', fontWeight: 700, marginBottom: '6px' }}>{week.week}</div>
+                    <div style={{ color: 'var(--text)', fontSize: '13px', marginBottom: '6px' }}>{week.action}</div>
                     {week.transfers.map((t, j) => (
-                      <div key={j} style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>
-                        OUT <span style={{ color: '#ff4444' }}>{t.sell.web_name}</span> → IN <span style={{ color: '#00ff87' }}>{t.buy.web_name}</span>
+                      <div key={j} style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '3px' }}>
+                        OUT <span style={{ color: 'var(--danger)' }}>{t.sell.web_name}</span> → IN <span style={{ color: 'var(--accent)' }}>{t.buy.web_name}</span>
                       </div>
                     ))}
                   </div>
@@ -324,27 +258,23 @@ export default function Transfers({ sharedTeamId, setSharedTeamId, sharedSquadDa
           )}
 
           {suggestions.map((s, i) => (
-            <div key={i} style={{ background: 'var(--bg)', borderRadius: '8px', padding: '16px', marginBottom: '12px', border: '1px solid var(--border)' }}>
+            <div key={i} className="panel" style={{ padding: '16px', marginBottom: '12px', background: 'var(--surface-2)' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap', marginBottom: '12px' }}>
-                <span style={{ background: 'var(--hover)', borderRadius: '4px', padding: '2px 8px', fontSize: '12px', color: 'var(--text-secondary)' }}>#{i + 1}</span>
-                <span style={{ color: '#ff4444', fontWeight: 'bold', fontSize: '16px' }}>OUT: {s.sell.web_name}</span>
+                <span className="rank">#{i + 1}</span>
+                <span style={{ color: 'var(--danger)', fontWeight: 700, fontSize: '15px' }}>OUT: {s.sell.web_name}</span>
                 <span style={{ color: 'var(--text-secondary)' }}>→</span>
-                <span style={{ color: '#00ff87', fontWeight: 'bold', fontSize: '16px' }}>IN: {s.buy.web_name}</span>
-                <span style={{ marginLeft: 'auto', color: getValueColor(s.points_gain), fontWeight: 'bold', fontSize: '15px' }}>+{s.points_gain} pts gain</span>
+                <span style={{ color: 'var(--accent)', fontWeight: 700, fontSize: '15px' }}>IN: {s.buy.web_name}</span>
+                <span style={{ marginLeft: 'auto', color: getValueColor(s.points_gain), fontWeight: 700, fontSize: '15px' }}>+{s.points_gain} pts</span>
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                {[['Selling', s.sell, '#ff4444'], ['Buying', s.buy, '#00ff87']].map(([label, p, color]) => (
-                  <div key={label} style={{ background: 'var(--bg-card)', borderRadius: '6px', padding: '12px' }}>
-                    <div style={{ color, fontSize: '12px', fontWeight: 'bold', marginBottom: '8px' }}>{label}</div>
+                {[['Selling', s.sell, 'var(--danger)'], ['Buying', s.buy, 'var(--accent)']].map(([label, p, color]) => (
+                  <div key={label} className="panel" style={{ padding: '12px', background: 'var(--surface)' }}>
+                    <div style={{ color, fontSize: '12px', fontWeight: 700, marginBottom: '8px' }}>{label}</div>
                     <div style={{ display: 'flex', alignItems: 'flex-end', gap: '12px', marginBottom: '8px' }}>
-                      {p.code && (
-                        <img src={`https://resources.premierleague.com/premierleague/photos/players/110x140/p${p.code}.png`}
-                          alt={p.web_name} style={{ height: '70px', objectFit: 'contain' }}
-                          onError={e => e.target.style.display = 'none'} />
-                      )}
-                      <div style={{ fontSize: '18px', fontWeight: 'bold' }}>{p.web_name}</div>
+                      {p.code && <img src={PHOTO(p.code)} alt={p.web_name} style={{ height: '60px', objectFit: 'contain' }} onError={e => { e.target.style.display = 'none' }} />}
+                      <div style={{ fontSize: '17px', fontWeight: 700 }}>{p.web_name}</div>
                     </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px', fontSize: '13px', color: 'var(--text-secondary)' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px', fontSize: '12.5px', color: 'var(--text-secondary)' }}>
                       <span>Price</span><span style={{ color: 'var(--text)' }}>£{p.price}m</span>
                       <span>Total Pts</span><span style={{ color: 'var(--text)' }}>{p.total_points}</span>
                       <span>Form</span><span style={{ color: 'var(--text)' }}>{p.form}</span>
@@ -356,9 +286,7 @@ export default function Transfers({ sharedTeamId, setSharedTeamId, sharedSquadDa
                 ))}
               </div>
               <div style={{ marginTop: '10px', fontSize: '13px', color: 'var(--text-secondary)' }}>
-                Cost difference: <span style={{ color: s.cost_diff > 0 ? '#ff4444' : '#00ff87' }}>
-                  {s.cost_diff > 0 ? `+£${s.cost_diff}m` : `£${s.cost_diff}m`}
-                </span>
+                Cost difference: <span style={{ color: s.cost_diff > 0 ? 'var(--danger)' : 'var(--accent)' }}>{s.cost_diff > 0 ? `+£${s.cost_diff}m` : `£${s.cost_diff}m`}</span>
               </div>
             </div>
           ))}
@@ -366,7 +294,7 @@ export default function Transfers({ sharedTeamId, setSharedTeamId, sharedSquadDa
       )}
 
       {step >= 3 && suggestions.length === 0 && (
-        <div style={{ background: 'var(--bg-card)', borderRadius: '8px', padding: '20px', color: 'var(--text-secondary)' }}>
+        <div className="panel panel-pad" style={{ color: 'var(--text-secondary)' }}>
           No beneficial transfers found with your current budget. Try adding more budget in the bank.
         </div>
       )}
