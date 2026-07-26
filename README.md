@@ -31,27 +31,42 @@ Player projections are built from multiple components:
 - Bonus point estimation from historical averages
 - Fixture difficulty multiplier applied last
 
-xG/xA data sourced from Understat. FPL data from the official Fantasy Premier League API.
+At the start of a season, projections are seeded from the previous season (FPL
+`history_past` for returning players, Understat's other leagues for new arrivals)
+and blend into live current-season numbers as minutes accrue. In-season xG/xA
+comes from the official FPL API; Understat is used only to seed newcomers.
 
 ## Data & Syncing
 
-The app syncs data automatically in the background:
-- **Every 2 hours** — player prices, form, transfer counts, ownership (via FPL bootstrap)
-- **Every 24 hours** — xG/xA data from Understat
+Syncing runs on **GitHub Actions** (`.github/workflows/sync.yml`), not inside
+the backend — a host that sleeps when idle can't run an in-process scheduler.
+The workflow runs the sync directly against Supabase, which also keeps the
+free-tier database from auto-pausing.
 
-The **🔃 Sync button** in the nav bar triggers an immediate manual sync of prices, fixtures, and xG data. Note that gameweek history (used in the Analytics breakdowns) is synced separately via the admin endpoint and does not need to be run every gameweek — only when new stat columns are added.
+- **Every 2 hours** — prices, form, transfer counts, ownership, current-season
+  xG (all from the FPL bootstrap), latest gameweek stats, and projections.
+- **Daily** — full per-player gameweek history + last-season / newcomer seeding.
 
-To run a full local sync:
+Current-season xG/xA now comes straight from the FPL API (`expected_goals_per_90`
+et al.), so it auto-updates with no scraping. Understat is used only to seed
+players arriving from other leagues.
+
+See **[SETUP.md](SETUP.md)** for one-time season setup (add the `DATABASE_URL`
+secret, run the workflow once) and the manual admin endpoints.
+
+To run a sync locally:
 ```bash
 cd backend
-python -c "from data.fpl_fetcher import full_sync; full_sync()"
+export DATABASE_URL="postgres://...supabase..."
+python -m data.fpl_fetcher full   # or: light | deep | migrate | projections
 ```
 
 ## Tech Stack
 
 - **Frontend:** React.js + Vite, deployed on Vercel
-- **Backend:** Python + FastAPI, deployed on Railway
-- **Database:** SQLite
+- **Backend:** Python + FastAPI, deployed on Render
+- **Database:** Supabase (Postgres)
+- **Data sync:** GitHub Actions (cron)
 - **Charts:** Chart.js + react-chartjs-2
 - **Data Sources:** Official FPL REST API, Understat, understatapi
 

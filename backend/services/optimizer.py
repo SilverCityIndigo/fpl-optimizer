@@ -1,5 +1,23 @@
 """
-FPL Squad Optimizer — Postgres version
+FPL Squad Optimizer — Postgres version.
+
+Two responsibilities:
+
+1. ``compute_projections`` — the projection *algorithm*. Runs once per data
+   sync (called by data.fpl_fetcher.sync_projections), loads everything it needs
+   in a handful of bulk queries (no per-player round-trips), and returns each
+   eligible player's projected points. The result is stored on the players table.
+
+2. ``get_players_for_optimization`` — the read path used by the API. It just
+   SELECTs the precomputed ``projected_points``, so transfer/captain/chip
+   endpoints and the team import respond in a single fast query instead of
+   recomputing the whole model on every request.
+
+Projections blend a player's recent-form points decay with their underlying
+xG/xA signal. Before a player has 26/27 minutes, the underlying signal and a
+points baseline come from a pre-season "seed" (last PL season for returners,
+Understat foreign leagues for new arrivals); as real minutes accrue the live
+current-season numbers blend in and the seed blends out.
 """
 
 import os
@@ -12,123 +30,113 @@ CS_PTS = {"GKP": 4, "DEF": 4, "MID": 1, "FWD": 0}
 DEFCON_PTS = 2
 BPS_DEFCON_THRESHOLD = {"DEF": 10, "MID": 12}
 
+GW_LOOKBACK = 6
+# Current-season minutes at which we fully trust live numbers over the seed.
+BLEND_FULL_MINUTES = 450.0
+
 
 def get_db():
     return psycopg2.connect(os.environ["DATABASE_URL"])
 
 
-def _get_team_cs_rates(c, is_home: bool) -> dict:
-    if is_home:
-        c.execute("""
-            SELECT team_h, COUNT(*) as played,
-                   SUM(CASE WHEN team_a_score = 0 THEN 1 ELSE 0 END) as cs
-            FROM fixtures
-            WHERE finished = 1 AND team_h_score IS NOT NULL
-            GROUP BY team_h
-        """)
-    else:
-        c.execute("""
-            SELECT team_a, COUNT(*) as played,
-                   SUM(CASE WHEN team_h_score = 0 THEN 1 ELSE 0 END) as cs
-            FROM fixtures
-            WHERE finished = 1 AND team_a_score IS NOT NULL
-            GROUP BY team_a
-        """)
-    rows = c.fetchall()
-    return {row[0]: row[2] / row[1] if row[1] > 0 else 0.3 for row in rows}
+# --------------------------------------------------------------------------- #
+# Projection algorithm (heavy — runs at sync time, bulk-loaded)               #
+# --------------------------------------------------------------------------- #
+
+def _form_adaptive_xg_weight(form: float, position: str) -> float:
+    form = max(0.0, min(10.0, float(form or 0)))
+    if position == "DEF":
+        return round(0.20 + (form / 10.0) * 0.40, 3)
+    return round(0.35 + 0.50 * ((form / 10.0) ** 0.6), 3)
 
 
-def _get_opponent_attack_factor(c, opponent_team_id: int, is_opponent_home: bool) -> float:
-    if is_opponent_home:
-        c.execute("""
-            SELECT AVG(team_h_score) FROM fixtures
-            WHERE team_h = %s AND finished = 1 AND team_h_score IS NOT NULL
-        """, (opponent_team_id,))
-    else:
-        c.execute("""
-            SELECT AVG(team_a_score) FROM fixtures
-            WHERE team_a = %s AND finished = 1 AND team_a_score IS NOT NULL
-        """, (opponent_team_id,))
-    row = c.fetchone()
-    avg_goals = float(row[0]) if row and row[0] is not None else 1.3
-    factor = 0.5 + (avg_goals / 1.3) * 0.5
-    return round(min(1.5, max(0.5, factor)), 3)
+def _position_xg_signal(position: str, xg90: float, xa90: float) -> float:
+    if position == "DEF":
+        return xa90 * 3.0
+    if position == "MID":
+        return xg90 * 5.0 + xa90 * 3.0
+    if position == "FWD":
+        return xg90 * 4.0 + xa90 * 3.0
+    return 0.0  # GKP handled separately
 
 
-def _get_player_stats(c, player_id: int, lookback: int = 6) -> dict:
-    c.execute("""
-        SELECT minutes, bonus, bps
-        FROM player_gameweek_history
-        WHERE player_id = %s
-        ORDER BY gameweek DESC
-        LIMIT %s
-    """, (player_id, lookback))
-    rows = c.fetchall()
-
-    if not rows:
-        return {
-            "avg_minutes": 45.0, "avg_bonus": 0.0, "avg_bps": 0.0,
-            "defcon_rate_def": 0.0, "defcon_rate_mid": 0.0, "games": 0,
-        }
-
-    games = len(rows)
-    avg_minutes = sum(float(r[0]) for r in rows) / games
-    avg_bonus = sum(float(r[1]) for r in rows) / games
-    avg_bps = sum(float(r[2]) for r in rows) / games
-    defcon_rate_def = sum(1 for r in rows if float(r[2]) >= BPS_DEFCON_THRESHOLD["DEF"]) / games
-    defcon_rate_mid = sum(1 for r in rows if float(r[2]) >= BPS_DEFCON_THRESHOLD["MID"]) / games
-
-    return {
-        "avg_minutes": avg_minutes, "avg_bonus": avg_bonus, "avg_bps": avg_bps,
-        "defcon_rate_def": defcon_rate_def, "defcon_rate_mid": defcon_rate_mid, "games": games,
-    }
+def _preseason_minutes_factor(sample_minutes: float) -> float:
+    """Rough starter-likelihood from a full-season minutes tally, used before
+    the player has current-season history to average."""
+    m = float(sample_minutes or 0)
+    if m >= 2200:
+        return 1.0
+    if m >= 1200:
+        return 0.8
+    if m >= 500:
+        return 0.6
+    if m > 0:
+        return 0.4
+    return 0.3
 
 
-def get_players_for_optimization(db_path: str = None, gw_lookback: int = 6):
+def compute_projections(gw_lookback: int = GW_LOOKBACK) -> list[dict]:
+    """Compute projected points for every eligible player. Returns a list of
+    dicts (at least id + projected_points, plus components for debugging)."""
     conn = get_db()
     c = conn.cursor()
 
+    # Are we in-season yet? Controls whether bootstrap's cumulative fields are
+    # this season's or last season's echo.
+    c.execute("SELECT EXISTS(SELECT 1 FROM gameweeks WHERE finished = 1)")
+    started = bool(c.fetchone()[0])
+
+    # --- Players (single query, eligibility gate) --------------------------- #
     c.execute("""
         SELECT
-            p.id, p.code, p.web_name, p.team_id, p.position,
-            p.price, p.total_points, p.points_per_game, p.form,
-            p.minutes, p.status, p.chance_of_playing_next_round,
-            t.short_name as team_name,
-            COALESCE(p.xg_per90,  0.0) as xg_per90,
-            COALESCE(p.xa_per90,  0.0) as xa_per90,
-            COALESCE(p.xgi_per90, 0.0) as xgi_per90
+            p.id, p.code, p.web_name, p.team_id, p.position, p.price,
+            p.total_points, p.points_per_game, p.form, p.minutes, p.status,
+            p.chance_of_playing_next_round, t.short_name AS team_name,
+            COALESCE(p.xg_per90, 0.0), COALESCE(p.xa_per90, 0.0),
+            COALESCE(p.seed_xg90, 0.0), COALESCE(p.seed_xa90, 0.0),
+            COALESCE(p.seed_ppg, 0.0), COALESCE(p.last_season_minutes, 0),
+            COALESCE(p.xg_source, '')
         FROM players p
         JOIN teams t ON p.team_id = t.id
         WHERE p.status != 'u'
-        AND p.minutes > 0
+          AND (p.minutes > 0
+               OR COALESCE(p.last_season_minutes, 0) >= 300
+               OR COALESCE(p.xg_source, '') <> '')
     """)
+    cols = ["id", "code", "web_name", "team_id", "position", "price",
+            "total_points", "points_per_game", "form", "minutes", "status",
+            "chance_of_playing", "team_name", "xg_per90", "xa_per90",
+            "seed_xg90", "seed_xa90", "seed_ppg", "last_season_minutes",
+            "xg_source"]
+    players = [dict(zip(cols, row)) for row in c.fetchall()]
+    for p in players:
+        for f in ["price", "points_per_game", "form", "xg_per90", "xa_per90",
+                  "seed_xg90", "seed_xa90", "seed_ppg"]:
+            p[f] = float(p[f] or 0)
+        p["minutes"] = int(p["minutes"] or 0)
+        p["last_season_minutes"] = int(p["last_season_minutes"] or 0)
 
-    columns = ["id", "code", "web_name", "team_id", "position", "price",
-               "total_points", "points_per_game", "form", "minutes",
-               "status", "chance_of_playing", "team_name",
-               "xg_per90", "xa_per90", "xgi_per90"]
+    # --- Recent history for ALL players in ONE query ------------------------ #
+    c.execute("""
+        SELECT player_id, gameweek, total_points, minutes, bonus, bps
+        FROM player_gameweek_history
+        ORDER BY player_id, gameweek DESC
+    """)
+    history_by_player: dict[int, list] = {}
+    for pid, gw, pts, mins, bonus, bps in c.fetchall():
+        bucket = history_by_player.setdefault(pid, [])
+        if len(bucket) < gw_lookback:
+            bucket.append((float(pts or 0), float(mins or 0),
+                           float(bonus or 0), float(bps or 0)))
 
-    raw = c.fetchall()
-    players = []
-    for row in raw:
-        p = dict(zip(columns, row))
-        for field in ["price", "total_points", "points_per_game", "form",
-                      "minutes", "xg_per90", "xa_per90", "xgi_per90"]:
-            if p.get(field) is not None:
-                p[field] = float(p[field])
-        players.append(p)
-
+    # --- Next-GW fixtures: FDR, opponent, venue ----------------------------- #
     c.execute("""
         SELECT f.team_h, f.team_a, f.team_h_difficulty, f.team_a_difficulty
         FROM fixtures f
         WHERE f.gameweek = (SELECT id FROM gameweeks WHERE is_next = 1 LIMIT 1)
     """)
-    fixture_rows = c.fetchall()
-
-    fdr_map = {}
-    opponent_map = {}
-    is_home_map = {}
-    for team_h, team_a, fdh, fda in fixture_rows:
+    fdr_map, opponent_map, is_home_map = {}, {}, {}
+    for team_h, team_a, fdh, fda in c.fetchall():
         fdr_map[team_h] = fdh
         fdr_map[team_a] = fda
         opponent_map[team_h] = team_a
@@ -136,124 +144,174 @@ def get_players_for_optimization(db_path: str = None, gw_lookback: int = 6):
         is_home_map[team_h] = True
         is_home_map[team_a] = False
 
+    # --- Team clean-sheet rates + attack strength (bulk) -------------------- #
+    def _cs_rates(is_home: bool) -> dict:
+        if is_home:
+            c.execute("""
+                SELECT team_h, COUNT(*),
+                       SUM(CASE WHEN team_a_score = 0 THEN 1 ELSE 0 END)
+                FROM fixtures WHERE finished = 1 AND team_h_score IS NOT NULL
+                GROUP BY team_h
+            """)
+        else:
+            c.execute("""
+                SELECT team_a, COUNT(*),
+                       SUM(CASE WHEN team_h_score = 0 THEN 1 ELSE 0 END)
+                FROM fixtures WHERE finished = 1 AND team_a_score IS NOT NULL
+                GROUP BY team_a
+            """)
+        return {r[0]: (r[2] / r[1] if r[1] else 0.3) for r in c.fetchall()}
+
+    def _attack_avg(is_home: bool) -> dict:
+        if is_home:
+            c.execute("""
+                SELECT team_h, AVG(team_h_score) FROM fixtures
+                WHERE finished = 1 AND team_h_score IS NOT NULL GROUP BY team_h
+            """)
+        else:
+            c.execute("""
+                SELECT team_a, AVG(team_a_score) FROM fixtures
+                WHERE finished = 1 AND team_a_score IS NOT NULL GROUP BY team_a
+            """)
+        return {r[0]: float(r[1]) for r in c.fetchall() if r[1] is not None}
+
+    cs_rate_home, cs_rate_away = _cs_rates(True), _cs_rates(False)
+    atk_home, atk_away = _attack_avg(True), _attack_avg(False)
+    conn.close()
+
+    def _opp_attack_factor(opp_id: int, opp_is_home: bool) -> float:
+        avg = (atk_home if opp_is_home else atk_away).get(opp_id, 1.3)
+        return round(min(1.5, max(0.5, 0.5 + (avg / 1.3) * 0.5)), 3)
+
     fdr_multipliers = {1: 1.20, 2: 1.10, 3: 1.00, 4: 0.90, 5: 0.80}
-    cs_rate_home = _get_team_cs_rates(c, is_home=True)
-    cs_rate_away = _get_team_cs_rates(c, is_home=False)
 
     for p in players:
-        pid = p["id"]
-        position = p["position"]
-        team_id = p["team_id"]
+        pid, position, team_id = p["id"], p["position"], p["team_id"]
+        history = history_by_player.get(pid, [])
 
-        c.execute("""
-            SELECT total_points, gameweek
-            FROM player_gameweek_history
-            WHERE player_id = %s
-            ORDER BY gameweek DESC
-            LIMIT %s
-        """, (pid, gw_lookback))
-        history = c.fetchall()
+        # Blend live current-season xG with the pre-season seed by real minutes.
+        cur_min = p["minutes"] if started else 0
+        w = min(1.0, cur_min / BLEND_FULL_MINUTES)
+        eff_xg90 = w * p["xg_per90"] + (1 - w) * p["seed_xg90"]
+        eff_xa90 = w * p["xa_per90"] + (1 - w) * p["seed_xa90"]
+        sample_min = cur_min if started else p["last_season_minutes"]
 
+        # Form decay from recent points; fall back to seed/ppg pre-season.
         if history:
             weights = [0.9 ** i for i in range(len(history))]
-            weighted_pts = sum(float(h[0]) * w for h, w in zip(history, weights))
-            decay_score = weighted_pts / sum(weights)
+            decay_score = sum(h[0] * wt for h, wt in zip(history, weights)) / sum(weights)
+            avg_minutes = sum(h[1] for h in history) / len(history)
+            avg_bonus = sum(h[2] for h in history) / len(history)
+            defcon_rate_def = sum(1 for h in history if h[3] >= BPS_DEFCON_THRESHOLD["DEF"]) / len(history)
+            defcon_rate_mid = sum(1 for h in history if h[3] >= BPS_DEFCON_THRESHOLD["MID"]) / len(history)
+            mins_factor = min(1.0, max(0.3, avg_minutes / 90.0))
         else:
-            decay_score = float(p["points_per_game"] or 2.0)
+            decay_score = p["seed_ppg"] if p["seed_ppg"] > 0 else (p["points_per_game"] or 2.0)
+            avg_bonus = 0.0
+            defcon_rate_def = defcon_rate_mid = 0.0
+            mins_factor = _preseason_minutes_factor(sample_min)
 
-        stats = _get_player_stats(c, pid, lookback=gw_lookback)
-        avg_mins = stats["avg_minutes"]
-        mins_factor = min(1.0, max(0.3, avg_mins / 90.0))
-        decay_score = decay_score * mins_factor
-        blended = _blend_xg(p, decay_score)
+        decay_score *= mins_factor
 
+        # Underlying-stats blend.
+        if position == "GKP":
+            blended = decay_score
+        else:
+            xg_signal = _position_xg_signal(position, eff_xg90, eff_xa90)
+            if xg_signal <= 0:
+                blended = decay_score
+            else:
+                form_for_weight = p["form"] if started else 5.0
+                max_w = _form_adaptive_xg_weight(form_for_weight, position)
+                conf = min(1.0, max(0.0, (sample_min - 90) / 900.0))
+                eff_w = max_w * conf
+                blended = (1 - eff_w) * decay_score + eff_w * xg_signal
+
+        # Clean-sheet contribution.
         is_home = is_home_map.get(team_id, True)
         opp_id = opponent_map.get(team_id)
         cs_pts = CS_PTS.get(position, 0)
-
         if cs_pts > 0 and opp_id is not None:
-            base_cs_rate = cs_rate_home.get(team_id, 0.3) if is_home else cs_rate_away.get(team_id, 0.3)
-            opp_is_home = not is_home
-            opp_atk_factor = _get_opponent_attack_factor(c, opp_id, opp_is_home)
-            adjusted_cs_rate = base_cs_rate / opp_atk_factor
-            adjusted_cs_rate = min(0.85, max(0.05, adjusted_cs_rate))
-            cs_bonus = adjusted_cs_rate * cs_pts
+            base_cs = cs_rate_home.get(team_id, 0.3) if is_home else cs_rate_away.get(team_id, 0.3)
+            adj_cs = base_cs / _opp_attack_factor(opp_id, not is_home)
+            adj_cs = min(0.85, max(0.05, adj_cs))
+            cs_bonus = adj_cs * cs_pts
         else:
-            cs_bonus = 0.0
-            adjusted_cs_rate = 0.0
-
-        p["cs_probability"] = round(adjusted_cs_rate if cs_pts > 0 else 0.0, 3)
+            adj_cs, cs_bonus = 0.0, 0.0
+        p["cs_probability"] = round(adj_cs if cs_pts > 0 else 0.0, 3)
 
         defcon_bonus = 0.0
         if position == "DEF":
-            defcon_bonus = stats["defcon_rate_def"] * DEFCON_PTS
+            defcon_bonus = defcon_rate_def * DEFCON_PTS
         elif position == "MID":
-            defcon_bonus = stats["defcon_rate_mid"] * DEFCON_PTS
+            defcon_bonus = defcon_rate_mid * DEFCON_PTS
 
-        bonus_estimate = stats["avg_bonus"]
-        projected = blended + cs_bonus + defcon_bonus + bonus_estimate
-        p["projected_points"] = round(projected, 3)
+        projected = blended + cs_bonus + defcon_bonus + avg_bonus
 
         chance = p["chance_of_playing"]
         if chance is not None and chance < 100:
-            p["projected_points"] *= (chance / 100.0)
+            projected *= (chance / 100.0)
 
         fdr = fdr_map.get(team_id, 3)
-        p["projected_points"] *= fdr_multipliers.get(fdr, 1.0)
-        p["projected_points"] = round(p["projected_points"], 3)
+        projected *= fdr_multipliers.get(fdr, 1.0)
+
+        p["projected_points"] = round(projected, 3)
         p["fdr"] = fdr
         p["_decay_score"] = round(decay_score, 3)
-        p["_cs_bonus"] = round(cs_bonus, 3)
-        p["_defcon_bonus"] = round(defcon_bonus, 3)
-        p["_bonus_estimate"] = round(bonus_estimate, 3)
+        p["_eff_xg90"] = round(eff_xg90, 3)
+        p["_eff_xa90"] = round(eff_xa90, 3)
         p["_mins_factor"] = round(mins_factor, 3)
 
-    conn.close()
     return players
 
 
-def _form_adaptive_xg_weight(form: float, position: str) -> float:
-    form = max(0.0, min(10.0, float(form or 0)))
-    if position == "DEF":
-        return round(0.20 + (form / 10.0) * 0.40, 3)
-    else:
-        return round(0.35 + 0.50 * ((form / 10.0) ** 0.6), 3)
+# --------------------------------------------------------------------------- #
+# Fast read path (used by the API — reads precomputed projections)            #
+# --------------------------------------------------------------------------- #
+
+def get_players_for_optimization(db_path: str = None, gw_lookback: int = GW_LOOKBACK):
+    """Fast single-query load of players with their stored projections, plus the
+    next-GW FDR. Used by every optimizer endpoint and the team import."""
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("""
+        SELECT p.id, p.code, p.web_name, p.team_id, p.position, p.price,
+               p.total_points, p.points_per_game, p.form, p.minutes, p.status,
+               t.short_name AS team_name,
+               COALESCE(p.xg_per90, 0.0), COALESCE(p.xa_per90, 0.0),
+               COALESCE(p.xgi_per90, 0.0), p.projected_points
+        FROM players p
+        JOIN teams t ON p.team_id = t.id
+        WHERE p.projected_points IS NOT NULL
+    """)
+    cols = ["id", "code", "web_name", "team_id", "position", "price",
+            "total_points", "points_per_game", "form", "minutes", "status",
+            "team_name", "xg_per90", "xa_per90", "xgi_per90", "projected_points"]
+    players = [dict(zip(cols, row)) for row in c.fetchall()]
+
+    c.execute("""
+        SELECT f.team_h, f.team_a, f.team_h_difficulty, f.team_a_difficulty
+        FROM fixtures f
+        WHERE f.gameweek = (SELECT id FROM gameweeks WHERE is_next = 1 LIMIT 1)
+    """)
+    fdr_map = {}
+    for team_h, team_a, fdh, fda in c.fetchall():
+        fdr_map[team_h] = fdh
+        fdr_map[team_a] = fda
+    conn.close()
+
+    for p in players:
+        for f in ["price", "total_points", "points_per_game", "form", "minutes",
+                  "xg_per90", "xa_per90", "xgi_per90", "projected_points"]:
+            if p.get(f) is not None:
+                p[f] = float(p[f])
+        p["fdr"] = fdr_map.get(p["team_id"], 3)
+    return players
 
 
-def _blend_xg(player: dict, decay_score: float) -> float:
-    position = player.get("position", "")
-    minutes = float(player.get("minutes") or 0)
-    xg_per90 = float(player.get("xg_per90") or 0)
-    xa_per90 = float(player.get("xa_per90") or 0)
-    form = float(player.get("form") or 0)
-
-    if position == "GKP":
-        return round(decay_score, 3)
-
-    max_xg_weight = _form_adaptive_xg_weight(form, position)
-
-    if position == "DEF":
-        if xa_per90 == 0:
-            return round(decay_score, 3)
-        xg_signal = xa_per90 * 3.0
-    elif position == "MID":
-        if xg_per90 == 0 and xa_per90 == 0:
-            return round(decay_score, 3)
-        xg_signal = (xg_per90 * 5.0) + (xa_per90 * 3.0)
-    else:
-        if xg_per90 == 0 and xa_per90 == 0:
-            return round(decay_score, 3)
-        xg_signal = (xg_per90 * 4.0) + (xa_per90 * 3.0)
-
-    minutes_factor = min(1.0, max(0.0, (minutes - 90) / 900))
-    effective_weight = max_xg_weight * minutes_factor
-
-    if effective_weight == 0:
-        return round(decay_score, 3)
-
-    blended = (1 - effective_weight) * decay_score + effective_weight * xg_signal
-    return round(blended, 3)
-
+# --------------------------------------------------------------------------- #
+# Squad optimization + advice endpoints (unchanged logic, fast read path)     #
+# --------------------------------------------------------------------------- #
 
 def optimize_squad(budget: float = 100.0, db_path: str = None, bench_weight: float = 0.1):
     players = get_players_for_optimization()
@@ -474,12 +532,8 @@ def analyze_chips(current_squad_ids: list, db_path: str = None):
 
     fdr_by_team = {}
     for team_h, team_a, fdh, fda, gw in fixtures:
-        if team_h not in fdr_by_team:
-            fdr_by_team[team_h] = []
-        if team_a not in fdr_by_team:
-            fdr_by_team[team_a] = []
-        fdr_by_team[team_h].append(fdh)
-        fdr_by_team[team_a].append(fda)
+        fdr_by_team.setdefault(team_h, []).append(fdh)
+        fdr_by_team.setdefault(team_a, []).append(fda)
 
     squad = [player_map[pid] for pid in current_squad_ids if pid in player_map]
     if not squad:

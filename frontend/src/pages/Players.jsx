@@ -2,7 +2,10 @@ import { useState, useEffect } from 'react'
 import { getPlayers } from '../api'
 
 const POSITIONS = ['All', 'GKP', 'DEF', 'MID', 'FWD']
+const POS_COLORS = { GKP: 'var(--gold)', DEF: 'var(--info)', MID: 'var(--accent)', FWD: 'var(--danger)' }
+const PHOTO = code => `https://resources.premierleague.com/premierleague/photos/players/110x140/p${code}.png`
 
+// Classification — same thresholds as before, emoji stripped.
 function valueRating(player, allPlayers) {
   const ptsPer    = player.points_per_game / player.price
   const ownership = parseFloat(player.selected_by_percent || 0)
@@ -13,94 +16,90 @@ function valueRating(player, allPlayers) {
     parseFloat(b.selected_by_percent) - parseFloat(a.selected_by_percent)
   )
   const rank = sorted.findIndex(p => p.id === player.id)
-  if (rank !== -1 && rank < 3) return { label: '📊 Reliable', color: '#00b2ff' }
+  if (rank !== -1 && rank < 3) return { label: 'Reliable', color: 'var(--info)' }
 
-  if (form < 2) return { label: '🚫 Avoid', color: '#ff4444' }
-  if (player.price >= 8.0 && form < 4) return { label: '🚫 Avoid', color: '#ff4444' }
-  if (ownership >= 30 && ptsPer >= 0.55 && form >= 4) return { label: '📊 Reliable', color: '#00b2ff' }
-  if (ptsPer >= 0.75 && form >= 4.2) return { label: '⭐ Elite Value', color: '#00ff87' }
-  if (ptsPer >= 0.55 && form >= 3.2) return { label: '✅ Good Value', color: '#7fff00' }
-  if (ptsPer >= 0.35) return { label: '📉 Poor Value', color: '#ffd700' }
-  return { label: '🚫 Avoid', color: '#ff4444' }
+  if (form < 2) return { label: 'Avoid', color: 'var(--danger)' }
+  if (player.price >= 8.0 && form < 4) return { label: 'Avoid', color: 'var(--danger)' }
+  if (ownership >= 30 && ptsPer >= 0.55 && form >= 4) return { label: 'Reliable', color: 'var(--info)' }
+  if (ptsPer >= 0.75 && form >= 4.2) return { label: 'Elite value', color: 'var(--accent)' }
+  if (ptsPer >= 0.55 && form >= 3.2) return { label: 'Good value', color: 'var(--accent)' }
+  if (ptsPer >= 0.35) return { label: 'Fair value', color: 'var(--gold)' }
+  return { label: 'Avoid', color: 'var(--danger)' }
 }
 
-function formEmoji(form) {
+function formColor(form) {
   const f = parseFloat(form || 0)
-  if (f >= 6) return { label: '🔥 On Fire', color: '#00ff87' }
-  if (f >= 4) return { label: '😁 Good',    color: '#7fff00' }
-  if (f >= 2) return { label: '❄️ Cold',    color: '#00b2ff' }
-  return           { label: '💀 Terrible',  color: '#ff4444' }
+  if (f >= 6) return 'var(--accent)'
+  if (f >= 4) return 'var(--info)'
+  if (f >= 2) return 'var(--text)'
+  return 'var(--danger)'
+}
+
+function availability(status) {
+  switch (status) {
+    case 'i': return { label: 'Injured', color: 'var(--danger)' }
+    case 's': return { label: 'Suspended', color: 'var(--danger)' }
+    case 'u':
+    case 'n': return { label: 'Unavailable', color: 'var(--danger)' }
+    case 'd': return { label: 'Doubtful', color: 'var(--gold)' }
+    default:  return null
+  }
+}
+
+function Silhouette({ color }) {
+  return (
+    <svg className="pcard-silhouette" viewBox="0 0 92 110" fill="none" aria-hidden="true">
+      <defs>
+        <linearGradient id="sil" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor={color} stopOpacity="0.5" />
+          <stop offset="1" stopColor={color} stopOpacity="0.1" />
+        </linearGradient>
+      </defs>
+      <circle cx="46" cy="33" r="19" fill="url(#sil)" />
+      <path d="M13 110c0-19 15-33 33-33s33 14 33 33" fill="url(#sil)" />
+    </svg>
+  )
 }
 
 function PlayerCard({ p, allPlayers, onAnalytics }) {
-  const val  = valueRating(p, allPlayers)
-  const form = formEmoji(p.form)
-  const photoUrl = p.code
-    ? `https://resources.premierleague.com/premierleague/photos/players/110x140/p${p.code}.png`
-    : null
-
-  const posColors = { GKP: '#f5a623', DEF: '#00b2ff', MID: '#00ff87', FWD: '#ff4444' }
+  const [imgOk, setImgOk] = useState(true)
+  const posColor = POS_COLORS[p.position] || 'var(--text-secondary)'
+  const injury = availability(p.status)
+  const chip = injury || valueRating(p, allPlayers)
 
   return (
-    <div style={{
-      background: 'var(--bg-card)', borderRadius: '12px', overflow: 'hidden',
-      display: 'flex', flexDirection: 'column', transition: 'transform 0.15s, box-shadow 0.15s',
-      border: '1px solid var(--border)', cursor: 'default'
-    }}
-      onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-4px)'; e.currentTarget.style.boxShadow = '0 8px 24px rgba(0,255,135,0.15)' }}
-      onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = 'none' }}>
-
-      <div style={{
-        background: 'linear-gradient(135deg, var(--bg) 0%, var(--bg-card) 100%)',
-        display: 'flex', justifyContent: 'center', alignItems: 'flex-end',
-        height: '140px', position: 'relative', overflow: 'hidden'
-      }}>
-        <div style={{ position: 'absolute', top: '10px', left: '10px', background: posColors[p.position] || 'var(--text-secondary)', color: '#000', fontSize: '11px', fontWeight: 'bold', padding: '3px 8px', borderRadius: '4px' }}>{p.position}</div>
-        <div style={{ position: 'absolute', top: '10px', right: '10px', background: '#00ff87', color: '#000', fontSize: '12px', fontWeight: 'bold', padding: '3px 8px', borderRadius: '4px' }}>£{p.price}m</div>
-        {photoUrl ? (
-          <img src={photoUrl} alt={p.web_name} style={{ height: '130px', objectFit: 'contain' }} onError={e => { e.target.style.display = 'none' }} />
-        ) : (
-          <div style={{ fontSize: '48px', paddingBottom: '8px' }}>👤</div>
-        )}
+    <article className="pcard">
+      <div className="pcard-head">
+        <span className="pcard-tag pos" style={{ background: posColor }}>{p.position}</span>
+        <span className="pcard-tag price">£{p.price}m</span>
+        {p.code && imgOk
+          ? <img className="pcard-photo" src={PHOTO(p.code)} alt={p.web_name} onError={() => setImgOk(false)} />
+          : <Silhouette color={posColor} />}
       </div>
 
-      <div style={{ padding: '12px 14px', flex: 1 }}>
-        <div style={{ fontWeight: 'bold', fontSize: '15px', marginBottom: '2px', color: 'var(--text)' }}>{p.web_name}</div>
-        <div style={{ color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '10px' }}>{p.team_name}</div>
-
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '6px', marginBottom: '10px' }}>
-          {[['Pts', p.total_points], ['Form', p.form], ['PPG', p.points_per_game]].map(([label, val]) => (
-            <div key={label} style={{ background: 'var(--bg)', borderRadius: '6px', padding: '6px', textAlign: 'center' }}>
-              <div style={{ color: 'var(--text-secondary)', fontSize: '10px', marginBottom: '2px' }}>{label}</div>
-              <div style={{ color: 'var(--text)', fontWeight: 'bold', fontSize: '14px' }}>{val}</div>
-            </div>
-          ))}
+      <div className="pcard-body">
+        <div className="pcard-name">{p.web_name}</div>
+        <div className="pcard-meta">
+          <span className="club">{p.team_name}</span>
+          <span className="dot" style={{ background: 'var(--text-muted)' }} />
+          <span className="class-chip"><span className="dot" style={{ background: chip.color }} />{chip.label}</span>
         </div>
 
-        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '8px' }}>
-          <span style={{ fontSize: '11px', padding: '3px 8px', borderRadius: '4px', background: 'var(--bg)', color: val.color, fontWeight: 'bold' }}>{val.label}</span>
-          <span style={{ fontSize: '11px', padding: '3px 8px', borderRadius: '4px', background: 'var(--bg)', color: p.status !== 'a' ? '#ff8800' : form.color, fontWeight: 'bold' }}>
-            {p.status !== 'a' ? '🤕 Injured' : form.label}
-          </span>
+        <div className="stat-row">
+          <div className="stat"><div className="k">Pts</div><div className="v">{p.total_points}</div></div>
+          <div className="stat"><div className="k">Form</div><div className="v" style={{ color: formColor(p.form) }}>{p.form}</div></div>
+          <div className="stat"><div className="k">PPG</div><div className="v">{p.points_per_game}</div></div>
         </div>
 
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px' }}>
-          <div style={{ fontSize: '11px', color: 'var(--text)', fontWeight: 'bold' }}>{p.selected_by_percent}% selected</div>
-          <button
-            onClick={() => onAnalytics(p)}
-            title="View in Analytics"
-            style={{
-              background: 'transparent', border: '1px solid var(--border)', borderRadius: '5px',
-              color: 'var(--text-secondary)', cursor: 'pointer', padding: '3px 8px', fontSize: '11px',
-              transition: 'all 0.15s'
-            }}
-            onMouseEnter={e => { e.currentTarget.style.borderColor = '#00ff87'; e.currentTarget.style.color = '#00ff87' }}
-            onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.color = 'var(--text-secondary)' }}>
-            📊 Analyse
+        <div className="pcard-foot">
+          <span className="own"><b>{p.selected_by_percent}%</b> owned</span>
+          <button className="ghost-btn" onClick={() => onAnalytics(p)} title="Open in Analytics">
+            <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="M4 19V5M4 19h16" /><path d="M8 15l3-4 3 2 4-6" /></svg>
+            Analyse
           </button>
         </div>
       </div>
-    </div>
+    </article>
   )
 }
 
@@ -126,89 +125,82 @@ export default function Players({ onAnalytics }) {
 
   return (
     <div>
-      <h2 style={{ marginBottom: '16px', color: '#00ff87' }}>Player Stats & Prices</h2>
+      <div className="page-head">
+        <h1 className="page-title">Player Stats &amp; Prices</h1>
+        <p className="page-sub">Form, value, and expected output for every player. Hit Analyse to break one down.</p>
+      </div>
 
-      <div style={{ display: 'flex', gap: '12px', marginBottom: '20px', flexWrap: 'wrap', alignItems: 'center' }}>
-        <input
-          placeholder="Search player..."
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text)', width: '200px' }}
-        />
-        {POSITIONS.map(pos => (
-          <button key={pos} onClick={() => setPosition(pos)}
-            style={{ padding: '8px 14px', borderRadius: '6px', border: '1px solid #00ff87', background: position === pos ? '#00ff87' : 'transparent', color: position === pos ? '#000' : 'var(--text)', cursor: 'pointer', fontWeight: position === pos ? 'bold' : 'normal' }}>
-            {pos}
-          </button>
-        ))}
-        <select value={sortBy} onChange={e => setSortBy(e.target.value)}
-          style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text)', marginLeft: 'auto' }}>
-          <option value="total_points">Sort: Total Points</option>
-          <option value="form">Sort: Form</option>
-          <option value="price">Sort: Price</option>
-          <option value="points_per_game">Sort: PPG</option>
-          <option value="selected_by_percent">Sort: Ownership</option>
-        </select>
-        <div style={{ display: 'flex', gap: '4px' }}>
-          {['cards', 'table'].map(v => (
-            <button key={v} onClick={() => setView(v)}
-              style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid var(--border)', background: view === v ? 'var(--border)' : 'transparent', color: 'var(--text)', cursor: 'pointer' }}>
-              {v === 'cards' ? '⊞' : '☰'}
-            </button>
+      <div className="toolbar">
+        <div className="search-box">
+          <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.7" strokeLinecap="round"><circle cx="11" cy="11" r="6.5" /><path d="m20 20-3.6-3.6" /></svg>
+          <input placeholder="Search player…" value={search} onChange={e => setSearch(e.target.value)} />
+        </div>
+
+        <div className="seg">
+          {POSITIONS.map(pos => (
+            <button key={pos} className={position === pos ? 'on' : ''} onClick={() => setPosition(pos)}>{pos}</button>
           ))}
+        </div>
+
+        <select className="field" value={sortBy} onChange={e => setSortBy(e.target.value)} style={{ marginLeft: 'auto', cursor: 'pointer' }}>
+          <option value="total_points">Sort · Total Points</option>
+          <option value="form">Sort · Form</option>
+          <option value="price">Sort · Price</option>
+          <option value="points_per_game">Sort · PPG</option>
+          <option value="selected_by_percent">Sort · Ownership</option>
+        </select>
+
+        <div className="seg">
+          <button className={view === 'cards' ? 'on' : ''} onClick={() => setView('cards')} title="Card view" aria-label="Card view">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" /><rect x="3" y="14" width="7" height="7" rx="1.5" /><rect x="14" y="14" width="7" height="7" rx="1.5" /></svg>
+          </button>
+          <button className={view === 'table' ? 'on' : ''} onClick={() => setView('table')} title="Table view" aria-label="Table view">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M4 7h16M4 12h16M4 17h16" /></svg>
+          </button>
         </div>
       </div>
 
       {loading ? (
-        <p style={{ color: 'var(--text-secondary)' }}>Loading players...</p>
+        <p style={{ color: 'var(--text-secondary)' }}>Loading players…</p>
       ) : view === 'cards' ? (
         <>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '16px' }}>
+          <div className="card-grid">
             {filtered.map(p => <PlayerCard key={p.id} p={p} allPlayers={players} onAnalytics={onAnalytics} />)}
           </div>
-          <p style={{ color: 'var(--text-secondary)', marginTop: '16px', fontSize: '13px' }}>{filtered.length} players shown</p>
+          <p className="result-count">{filtered.length} players shown</p>
         </>
       ) : (
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', background: 'var(--bg-card)', borderRadius: '8px', overflow: 'hidden' }}>
-            <thead style={{ background: 'var(--bg)' }}>
+        <div className="panel" style={{ overflowX: 'auto' }}>
+          <table className="data-table">
+            <thead>
               <tr>
-                {['Player', 'Team', 'Pos', 'Price', 'Pts', 'Form', 'PPG', 'Value', 'Form Rating', 'Selected %', ''].map(h => (
-                  <th key={h} style={{ padding: '10px 12px', textAlign: 'left', borderBottom: '1px solid var(--border)', color: 'var(--text-secondary)', fontSize: '13px' }}>{h}</th>
-                ))}
+                {['Player', 'Team', 'Pos', 'Price', 'Pts', 'Form', 'PPG', 'Value', 'Status', 'Owned', ''].map(h => <th key={h}>{h}</th>)}
               </tr>
             </thead>
             <tbody>
               {filtered.map(p => {
-                const val  = valueRating(p, players)
-                const form = formEmoji(p.form)
+                const val = valueRating(p, players)
+                const injury = availability(p.status)
+                const posColor = POS_COLORS[p.position] || 'var(--text-secondary)'
                 return (
-                  <tr key={p.id}
-                    onMouseEnter={e => e.currentTarget.style.background = 'var(--hover)'}
-                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                    <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--bg-card)', fontWeight: 'bold' }}>
-                      {p.code && <img src={`https://resources.premierleague.com/premierleague/photos/players/110x140/p${p.code}.png`}
-                        style={{ width: '24px', height: '30px', objectFit: 'contain', marginRight: '8px', verticalAlign: 'middle' }}
-                        onError={e => e.target.style.display = 'none'} />}
+                  <tr key={p.id}>
+                    <td style={{ fontWeight: 700 }}>
+                      {p.code && <img src={PHOTO(p.code)} style={{ width: '22px', height: '28px', objectFit: 'contain', marginRight: '8px', verticalAlign: 'middle' }} onError={e => { e.target.style.display = 'none' }} alt="" />}
                       {p.web_name}
                     </td>
-                    <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--bg-card)', color: 'var(--text-secondary)' }}>{p.team_name}</td>
-                    <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--bg-card)' }}><span style={{ background: 'var(--border)', padding: '2px 8px', borderRadius: '4px', fontSize: '12px' }}>{p.position}</span></td>
-                    <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--bg-card)', color: '#00ff87', fontWeight: 'bold' }}>£{p.price}m</td>
-                    <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--bg-card)', fontWeight: 'bold' }}>{p.total_points}</td>
-                    <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--bg-card)' }}>{p.form}</td>
-                    <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--bg-card)' }}>{p.points_per_game}</td>
-                    <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--bg-card)', color: val.color, fontWeight: 'bold' }}>{val.label}</td>
-                    <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--bg-card)', color: p.status !== 'a' ? '#ff8800' : form.color, fontWeight: 'bold' }}>
-                      {p.status !== 'a' ? '🤕 Injured' : form.label}
-                    </td>
-                    <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--bg-card)', color: 'var(--text)', fontWeight: 'bold' }}>{p.selected_by_percent}%</td>
-                    <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--bg-card)' }}>
-                      <button onClick={() => onAnalytics(p)}
-                        style={{ background: 'transparent', border: '1px solid var(--border)', borderRadius: '5px', color: 'var(--text-secondary)', cursor: 'pointer', padding: '3px 10px', fontSize: '11px', transition: 'all 0.15s' }}
-                        onMouseEnter={e => { e.currentTarget.style.borderColor = '#00ff87'; e.currentTarget.style.color = '#00ff87' }}
-                        onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.color = 'var(--text-secondary)' }}>
-                        📊 Analyse
+                    <td style={{ color: 'var(--text-secondary)' }}>{p.team_name}</td>
+                    <td><span className="pos-pill" style={{ background: posColor }}>{p.position}</span></td>
+                    <td style={{ color: 'var(--accent)', fontWeight: 700 }}>£{p.price}m</td>
+                    <td style={{ fontWeight: 700 }}>{p.total_points}</td>
+                    <td style={{ color: formColor(p.form), fontWeight: 600 }}>{p.form}</td>
+                    <td>{p.points_per_game}</td>
+                    <td style={{ color: val.color, fontWeight: 600 }}>{val.label}</td>
+                    <td style={{ color: injury ? injury.color : 'var(--text-muted)', fontWeight: injury ? 600 : 400 }}>{injury ? injury.label : 'Available'}</td>
+                    <td style={{ fontWeight: 600 }}>{p.selected_by_percent}%</td>
+                    <td>
+                      <button className="ghost-btn" onClick={() => onAnalytics(p)}>
+                        <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="M4 19V5M4 19h16" /><path d="M8 15l3-4 3 2 4-6" /></svg>
+                        Analyse
                       </button>
                     </td>
                   </tr>
@@ -216,9 +208,8 @@ export default function Players({ onAnalytics }) {
               })}
             </tbody>
           </table>
-          <p style={{ color: 'var(--text-secondary)', marginTop: '12px', fontSize: '13px' }}>{filtered.length} players shown</p>
         </div>
       )}
     </div>
   )
-} 
+}

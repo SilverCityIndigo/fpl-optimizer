@@ -1,0 +1,63 @@
+name: FPL Data Sync
+
+# External scheduler that replaces the old in-process APScheduler (which never
+# fired reliably because the API host sleeps when idle). This runs the sync
+# functions directly against Supabase, so it works regardless of whether the
+# Render service is awake — and the regular DB writes keep the free-tier
+# Supabase project from auto-pausing.
+#
+# Requires one repository secret: DATABASE_URL (your Supabase connection string).
+# Settings -> Secrets and variables -> Actions -> New repository secret.
+
+on:
+  schedule:
+    - cron: "0 */2 * * *"   # light sync every 2 hours (prices, xG, live GW, projections)
+    - cron: "30 5 * * *"    # deep sync daily at 05:30 UTC (histories + season seeding)
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Sync mode to run"
+        required: true
+        default: "full"
+        type: choice
+        options: [light, deep, full, migrate, bootstrap, projections]
+
+concurrency:
+  group: fpl-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        working-directory: backend
+        run: pip install -r requirements.txt
+
+      - name: Decide sync mode
+        id: pick
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "cmd=${{ github.event.inputs.mode }}" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event.schedule }}" = "30 5 * * *" ]; then
+            echo "cmd=deep" >> "$GITHUB_OUTPUT"
+          else
+            echo "cmd=light" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run sync (${{ steps.pick.outputs.cmd }})
+        working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          UNDERSTAT_SEASON: "2026"
+          UNDERSTAT_SEED_SEASON: "2025"
+        run: python -m data.fpl_fetcher ${{ steps.pick.outputs.cmd }}
