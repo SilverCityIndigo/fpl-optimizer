@@ -51,8 +51,14 @@ const NAV = [
   { key: 'analytics',     label: 'Analytics', icon: <><path d="M4 20V4M4 20h16" /><rect x="7.5" y="12" width="3" height="5" /><rect x="13" y="8" width="3" height="9" /></> },
 ]
 
+const PAGE_KEYS = NAV.filter(n => n.key).map(n => n.key)
+function pageFromHash() {
+  const h = (window.location.hash || '').replace(/^#/, '')
+  return PAGE_KEYS.includes(h) ? h : null
+}
+
 export default function App() {
-  const [page, setPage] = useState('players')
+  const [page, setPage] = useState(() => pageFromHash() || 'players')
   const [theme, setTheme] = useState(getInitialTheme)
   const [collapsed, setCollapsed] = useState(() => window.localStorage.getItem(COLLAPSE_KEY) === '1')
   const [analyticsPlayer, setAnalyticsPlayer] = useState(null)
@@ -70,18 +76,33 @@ export default function App() {
     try { window.localStorage.setItem(COLLAPSE_KEY, collapsed ? '1' : '0') } catch { /* ignore */ }
   }, [collapsed])
 
+  // Wire the browser back/forward buttons to move between our pages.
+  useEffect(() => {
+    window.history.replaceState({ page }, '', '#' + page)
+    const onPop = e => setPage(e.state?.page || pageFromHash() || 'players')
+    window.addEventListener('popstate', onPop)
+    return () => window.removeEventListener('popstate', onPop)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  function navigate(next) {
+    if (next === page) return
+    setPage(next)
+    window.history.pushState({ page: next }, '', '#' + next)
+  }
+
   function toggleTheme() { setTheme(t => (t === 'dark' ? 'light' : 'dark')) }
 
   function goToAnalytics(player) {
     setAnalyticsPlayer(player)
-    setPage('analytics')
+    navigate('analytics')
   }
 
   return (
     <div className={`app-shell${collapsed ? ' collapsed' : ''}`}>
       <aside className="sidebar">
         <div className="brand">
-          <button className="brand-id" onClick={() => setPage('players')} title="The xG Files">
+          <button className="brand-id" onClick={() => navigate('players')} title="The xG Files">
             <span className="brand-sigil"><Sigil /></span>
             <span className="brand-word">
               <span className="the">The</span>
@@ -102,7 +123,7 @@ export default function App() {
               <button
                 key={item.key}
                 className={`nav-item${page === item.key ? ' active' : ''}`}
-                onClick={() => setPage(item.key)}
+                onClick={() => navigate(item.key)}
                 title={item.label}
               >
                 <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">{item.icon}</svg>
