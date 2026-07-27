@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import Home from './pages/Home'
 import Players from './pages/Players'
 import Transfers from './pages/Transfers'
 import Captain from './pages/Captain'
@@ -40,6 +41,7 @@ function Sigil() {
 }
 
 const NAV = [
+  { key: 'home',          label: 'Home',      icon: <path d="M4 10.5 12 4l8 6.5V20H4z" /> },
   { group: 'Squad' },
   { key: 'players',       label: 'Players',   icon: <><circle cx="12" cy="8" r="3.4" /><path d="M5.5 20a6.5 6.5 0 0 1 13 0" /></> },
   { key: 'transfers',     label: 'Transfers', icon: <path d="M4 8h13l-3-3M20 16H7l3 3" /> },
@@ -52,13 +54,20 @@ const NAV = [
 ]
 
 const PAGE_KEYS = NAV.filter(n => n.key).map(n => n.key)
-function pageFromHash() {
+
+// Home is the bare URL: "/" and "/home" both land there, and it is the only page
+// that does not carry a hash, so a fresh visit never gets bounced to "#players".
+function homePath() {
+  return window.location.pathname.replace(/\/home\/?$/, '/') + window.location.search
+}
+function pageFromUrl() {
   const h = (window.location.hash || '').replace(/^#/, '')
-  return PAGE_KEYS.includes(h) ? h : null
+  if (PAGE_KEYS.includes(h)) return h
+  return 'home'
 }
 
 export default function App() {
-  const [page, setPage] = useState(() => pageFromHash() || 'players')
+  const [page, setPage] = useState(pageFromUrl)
   const [theme, setTheme] = useState(getInitialTheme)
   const [collapsed, setCollapsed] = useState(() => window.localStorage.getItem(COLLAPSE_KEY) === '1')
   const [analyticsPlayer, setAnalyticsPlayer] = useState(null)
@@ -78,17 +87,24 @@ export default function App() {
 
   // Wire the browser back/forward buttons to move between our pages.
   useEffect(() => {
-    window.history.replaceState({ page }, '', '#' + page)
-    const onPop = e => setPage(e.state?.page || pageFromHash() || 'players')
+    window.history.replaceState({ page }, '', page === 'home' ? homePath() : '#' + page)
+    const onPop = e => setPage(e.state?.page || pageFromUrl())
+    // pushState never fires hashchange, so this only catches a hand-edited address bar.
+    const onHash = () => setPage(pageFromUrl())
     window.addEventListener('popstate', onPop)
-    return () => window.removeEventListener('popstate', onPop)
+    window.addEventListener('hashchange', onHash)
+    return () => {
+      window.removeEventListener('popstate', onPop)
+      window.removeEventListener('hashchange', onHash)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   function navigate(next) {
     if (next === page) return
     setPage(next)
-    window.history.pushState({ page: next }, '', '#' + next)
+    window.history.pushState({ page: next }, '', next === 'home' ? homePath() : '#' + next)
+    window.scrollTo(0, 0)
   }
 
   function toggleTheme() { setTheme(t => (t === 'dark' ? 'light' : 'dark')) }
@@ -102,7 +118,7 @@ export default function App() {
     <div className={`app-shell${collapsed ? ' collapsed' : ''}`}>
       <aside className="sidebar">
         <div className="brand">
-          <button className="brand-id" onClick={() => navigate('players')} title="The xG Files">
+          <button className="brand-id" onClick={() => navigate('home')} title="The xG Files">
             <span className="brand-sigil"><Sigil /></span>
             <span className="brand-word">
               <span className="the">The</span>
@@ -135,13 +151,13 @@ export default function App() {
 
         <div className="side-foot">
           <button className="theme-toggle" onClick={toggleTheme}
-            title={theme === 'dark' ? 'Switch to Sky mode' : 'Switch to Files (dark) mode'}>
+            title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}>
             {theme === 'dark' ? (
               <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="4.2" /><path d="M12 3v2.4M12 18.6V21M3 12h2.4M18.6 12H21M5.6 5.6l1.7 1.7M16.7 16.7l1.7 1.7M18.4 5.6l-1.7 1.7M7.3 16.7l-1.7 1.7" /></svg>
             ) : (
               <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M20 14.5A8.5 8.5 0 1 1 9.5 4a6.6 6.6 0 0 0 10.5 10.5z" /></svg>
             )}
-            <span className="nav-txt">{theme === 'dark' ? 'Sky mode' : 'Files mode'}</span>
+            <span className="nav-txt">{theme === 'dark' ? 'Light mode' : 'Dark mode'}</span>
           </button>
 
           <button className="collapse-btn" onClick={() => setCollapsed(c => !c)} title={collapsed ? 'Expand' : 'Collapse'}>
@@ -153,6 +169,7 @@ export default function App() {
 
       <main className="main">
         <div className="page">
+          {page === 'home'          && <Home onNavigate={navigate} onAnalytics={goToAnalytics} />}
           {page === 'players'       && <Players onAnalytics={goToAnalytics} />}
           {page === 'transfers'     && <Transfers sharedTeamId={sharedTeamId} setSharedTeamId={setSharedTeamId} sharedSquadData={sharedSquadData} setSharedSquadData={setSharedSquadData} />}
           {page === 'captain'       && <Captain sharedTeamId={sharedTeamId} setSharedTeamId={setSharedTeamId} sharedSquadData={sharedSquadData} setSharedSquadData={setSharedSquadData} />}
