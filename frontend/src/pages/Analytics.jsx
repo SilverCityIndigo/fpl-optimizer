@@ -122,13 +122,15 @@ function CompareRow({ players, compare, onCompare, onClear, excludeId }) {
   )
 }
 
-const CHART_H = { height: 'min(56vh, 460px)' }
+// Sized so the chart plus its controls, legend and the selected-player panel
+// all fit in a standard viewport without scrolling at 100% zoom.
+const CHART_H = { height: 'clamp(220px, 40vh, 380px)' }
 
 // ─── Player detail header (shared by xG + timeline) ─────────────────────────
 function PlayerHead({ selected, tiles }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: '14px', marginBottom: '14px', flexWrap: 'wrap' }}>
-      {selected.code && <img src={PHOTO(selected.code)} style={{ height: '56px', objectFit: 'contain' }} onError={e => { e.target.style.display = 'none' }} alt="" />}
+    <div style={{ display: 'flex', alignItems: 'center', gap: '14px', marginBottom: '10px', flexWrap: 'wrap' }}>
+      {selected.code && <img src={PHOTO(selected.code)} style={{ height: '46px', objectFit: 'contain' }} onError={e => { e.target.style.display = 'none' }} alt="" />}
       <div style={{ flex: 1, minWidth: '150px' }}>
         <div style={{ fontWeight: 700, fontSize: '17px' }}>{selected.web_name}</div>
         <div style={{ color: 'var(--text-secondary)', fontSize: '12.5px' }}>{selected.team_name} · {selected.position} · £{selected.price}m</div>
@@ -165,11 +167,23 @@ function XGPanel({ players, selectedPlayer, onSelectPlayer }) {
   const selDot = filtered.find(p => p.id === selected?.id)
   const cmpDot = filtered.find(p => p.id === compare?.id)
 
+  // Dots are coloured by where a player sits against the xG = Goals line:
+  // above it they are outscoring their chances, below it they are wasting them.
+  // Selection is shown with a ring rather than a colour, so the colour always
+  // means the same thing.
+  const PERF_BAND = 0.05
+  const perfColor = p => {
+    const diff = p.goals_p90 - p.xg_p90
+    if (diff > PERF_BAND) return C.accent
+    if (diff < -PERF_BAND) return C.danger
+    return C.muted
+  }
+
   const data = {
     datasets: [
-      { label: 'Players', data: bg.map(p => ({ x: p.xg_p90, y: p.goals_p90, player: p })), backgroundColor: alpha(C.muted, 0.5), pointRadius: 4, pointHoverRadius: 6 },
-      ...(selDot ? [{ label: selected.web_name, data: [{ x: selDot.xg_p90, y: selDot.goals_p90, player: selDot }], backgroundColor: C.accent, borderColor: C.surface, borderWidth: 2, pointRadius: 9, pointHoverRadius: 12 }] : []),
-      ...(cmpDot ? [{ label: compare.web_name, data: [{ x: cmpDot.xg_p90, y: cmpDot.goals_p90, player: cmpDot }], backgroundColor: C.gold, borderColor: C.surface, borderWidth: 2, pointRadius: 9, pointHoverRadius: 12 }] : []),
+      { label: 'Players', data: bg.map(p => ({ x: p.xg_p90, y: p.goals_p90, player: p })), backgroundColor: bg.map(p => alpha(perfColor(p), 0.7)), pointRadius: 4, pointHoverRadius: 6 },
+      ...(selDot ? [{ label: selected.web_name, data: [{ x: selDot.xg_p90, y: selDot.goals_p90, player: selDot }], backgroundColor: perfColor(selDot), borderColor: C.text, borderWidth: 3, pointRadius: 9, pointHoverRadius: 12 }] : []),
+      ...(cmpDot ? [{ label: compare.web_name, data: [{ x: cmpDot.xg_p90, y: cmpDot.goals_p90, player: cmpDot }], backgroundColor: perfColor(cmpDot), borderColor: C.gold, borderWidth: 3, pointRadius: 9, pointHoverRadius: 12 }] : []),
       { label: 'xG = Goals', type: 'line', data: [{ x: 0, y: 0 }, { x: maxVal, y: maxVal }], borderColor: alpha(C.muted, 0.6), borderDash: [6, 5], borderWidth: 1.5, pointRadius: 0, fill: false },
     ]
   }
@@ -198,7 +212,8 @@ function XGPanel({ players, selectedPlayer, onSelectPlayer }) {
       <div className="chart-legend">
         <span><i style={{ background: 'var(--accent)' }} /> Overperforming xG</span>
         <span><i style={{ background: 'var(--text-muted)' }} /> In line</span>
-        <span><i style={{ background: 'var(--gold)' }} /> Selected / compare</span>
+        <span><i style={{ background: 'var(--danger)' }} /> Underperforming xG</span>
+        <span><i style={{ background: 'transparent', boxShadow: 'inset 0 0 0 2px var(--text)' }} /> Selected / compare</span>
       </div>
 
       {selected && (

@@ -183,7 +183,7 @@ body { min-height: 100vh; }
 /* ============================================================
    PAGE HEADER + TEXT PRIMITIVES
    ============================================================ */
-.page-head { margin-bottom: 18px; }
+.page-head { margin-bottom: 13px; }
 .page-title { font-size: 22px; font-weight: 800; letter-spacing: -.01em; text-wrap: balance; }
 .page-sub { color: var(--text-secondary); font-size: 13px; margin-top: 4px; max-width: 74ch; line-height: 1.45; }
 .section-title { font-size: 14px; font-weight: 700; }
@@ -305,9 +305,9 @@ body { min-height: 100vh; }
 /* ============================================================
    CHARTS
    ============================================================ */
-.chart-panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow-1); padding: 16px 18px; }
-.chart-controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
-.chart-legend { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 10px; }
+.chart-panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow-1); padding: 13px 16px; }
+.chart-controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 9px; }
+.chart-legend { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 8px; }
 .chart-legend span { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; color: var(--text-secondary); }
 .chart-legend i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
 
