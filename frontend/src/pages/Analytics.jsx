@@ -6,13 +6,13 @@ import {
 } from 'chart.js'
 import { Scatter, Line } from 'react-chartjs-2'
 import { getPlayers, getPlayerHistory } from '../api'
+import { PHOTO } from '../playerPhoto'
 
 ChartJS.register(LinearScale, PointElement, LineElement, ChartTooltip, Legend, CategoryScale, Filler, BarElement)
 
 const POSITIONS = ['All', 'GKP', 'DEF', 'MID', 'FWD']
 // DOM (CSS) colours — safe to use as CSS var strings in HTML/inline styles
 const POS_COLORS = { GKP: 'var(--gold)', DEF: 'var(--info)', MID: 'var(--accent)', FWD: 'var(--danger)' }
-const PHOTO = code => `https://resources.premierleague.com/premierleague/photos/players/110x140/p${code}.png`
 
 // ─── Theme colour resolution for Chart.js (canvas can't read CSS vars) ───────
 function readThemeColors() {

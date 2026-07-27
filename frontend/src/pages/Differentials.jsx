@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react'
 import { getDifferentials } from '../api'
+import { PHOTO } from '../playerPhoto'
 
 const POSITIONS = ['All', 'GKP', 'DEF', 'MID', 'FWD']
 const POS_COLORS = { GKP: 'var(--gold)', DEF: 'var(--info)', MID: 'var(--accent)', FWD: 'var(--danger)' }
 const FDR_COLORS = { 1: 'var(--accent)', 2: 'var(--info)', 3: 'var(--gold)', 4: '#e0872e', 5: 'var(--danger)' }
 const POS_NAMES = { GKP: 'Goalkeepers', DEF: 'Defenders', MID: 'Midfielders', FWD: 'Forwards' }
-const PHOTO = code => `https://resources.premierleague.com/premierleague/photos/players/110x140/p${code}.png`
 
 export default function Differentials() {
   const [players, setPlayers] = useState([])

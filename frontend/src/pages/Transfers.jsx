@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react'
 import { getTeamSquad, getTransferSuggestions, getHitAnalysis } from '../api'
 import pitchImg from '../assets/fpl_pitch.jpg'
+import { PHOTO } from '../playerPhoto'
 
-const PHOTO = code => `https://resources.premierleague.com/premierleague/photos/players/110x140/p${code}.png`
 
 function XGStats({ player }) {
   const xgi = parseFloat(player.xgi_per90 || 0)

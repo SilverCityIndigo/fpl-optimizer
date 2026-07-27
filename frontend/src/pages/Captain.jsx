@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react'
 import { getTeamSquad, getCaptainPick } from '../api'
+import { PHOTO } from '../playerPhoto'
 
 const FDR_COLORS = { 1: 'var(--accent)', 2: 'var(--info)', 3: 'var(--gold)', 4: '#e0872e', 5: 'var(--danger)' }
 const FDR_LABELS = { 1: 'Very Easy', 2: 'Easy', 3: 'Medium', 4: 'Hard', 5: 'Very Hard' }
-const PHOTO = code => `https://resources.premierleague.com/premierleague/photos/players/110x140/p${code}.png`
 
 export default function Captain({ sharedTeamId, setSharedTeamId, sharedSquadData, setSharedSquadData }) {
   const [loading, setLoading] = useState(false)

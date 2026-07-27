@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react'
 import { getPriceChanges } from '../api'
+import { PHOTO } from '../playerPhoto'
 
 const POSITIONS = ['All', 'GKP', 'DEF', 'MID', 'FWD']
 const POS_COLORS = { GKP: 'var(--gold)', DEF: 'var(--info)', MID: 'var(--accent)', FWD: 'var(--danger)' }
-const PHOTO = code => `https://resources.premierleague.com/premierleague/photos/players/110x140/p${code}.png`
 
 export default function PriceChanges() {
   const [players, setPlayers] = useState([])
