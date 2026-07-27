@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Local env / secrets
+.env
+.env.*
+!.env.example
+
+# Local SQLite (the app uses Supabase/Postgres in every deployed environment)
+backend/fpl.db
+
+# OS / editor
+.DS_Store
+Thumbs.db

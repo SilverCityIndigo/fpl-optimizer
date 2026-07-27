@@ -109,6 +109,30 @@ def _per90(total, minutes) -> float:
     return round(_f(total) / (m / 90.0), 3)
 
 
+def _season_label(events: list) -> str:
+    """Derive a season label ('2026/27') from GW1's deadline year.
+
+    FPL reassigns player ids every season, so per-gameweek history rows must be
+    stamped with the season they belong to. Without it, last season's rows for
+    player id N silently become the history of whoever inherits id N."""
+    first = next((e.get("deadline_time") for e in events if e.get("id") == 1), None)
+    if not first:
+        deadlines = sorted(str(e.get("deadline_time") or "") for e in events)
+        first = deadlines[0] if deadlines else ""
+    try:
+        year = int(str(first)[:4])
+    except (ValueError, TypeError):
+        return ""
+    return f"{year}/{str(year + 1)[-2:]}"
+
+
+def _season_from_db(c) -> str:
+    """Season label derived from the gameweeks table (populated by bootstrap)."""
+    c.execute("SELECT id, deadline_time FROM gameweeks")
+    events = [{"id": r[0], "deadline_time": r[1]} for r in c.fetchall()]
+    return _season_label(events)
+
+
 def _ascii_fold(text: str) -> str:
     """Strip diacritics and lowercase, so FPL's stripped/common names
     (Dembele) match Understat's accented forms (Dembélé) when fuzzy matching."""
@@ -206,6 +230,7 @@ def init_db():
         ("players", "xg_source", "TEXT DEFAULT ''"),
         ("players", "projected_points", "DOUBLE PRECISION"),
         ("players", "projected_updated_at", "TEXT"),
+        ("player_gameweek_history", "season", "TEXT"),
         # Guard against older schemas missing the newer stat columns.
         ("player_gameweek_history", "defensive_contribution", "INTEGER DEFAULT 0"),
         ("player_gameweek_history", "clearances_blocks_interceptions", "INTEGER DEFAULT 0"),
@@ -338,6 +363,16 @@ def sync_bootstrap():
         c.execute("DELETE FROM player_gameweek_history WHERE NOT (player_id = ANY(%s))",
                   (cur_players,))
         dh = c.rowcount or 0
+        # Drop history rows belonging to a different season. Ids are reused, so
+        # id-based pruning alone can't catch last season's rows for a player id
+        # that still exists — they'd be misread as this season's form.
+        season = _season_label(data["events"])
+        if season:
+            c.execute(
+                "DELETE FROM player_gameweek_history WHERE season IS DISTINCT FROM %s",
+                (season,),
+            )
+            dh += c.rowcount or 0
         if dp or dt or dh:
             pruned = f" 🧹 pruned {dp} stale players / {dt} teams / {dh} history rows."
 
@@ -360,6 +395,13 @@ def sync_fixtures():
             VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
             ON CONFLICT(id) DO UPDATE SET
                 gameweek=EXCLUDED.gameweek,
+                -- team_h/team_a MUST be updated: FPL reuses fixture ids 1..380
+                -- every season, so an existing row would otherwise keep last
+                -- season's two teams while taking on this season's gameweek and
+                -- difficulty (e.g. showing "LIV vs ARS" for a 26/27 GW1 that is
+                -- actually ARS vs COV).
+                team_h=EXCLUDED.team_h,
+                team_a=EXCLUDED.team_a,
                 team_h_difficulty=EXCLUDED.team_h_difficulty,
                 team_a_difficulty=EXCLUDED.team_a_difficulty,
                 team_h_score=EXCLUDED.team_h_score,
@@ -461,6 +503,7 @@ def sync_player_histories(limit: int = None, seed: bool = True):
     c = conn.cursor()
     c.execute("SELECT id, position FROM players ORDER BY total_points DESC")
     player_rows = c.fetchall()
+    season = _season_from_db(c)
     conn.close()
 
     if limit:
@@ -486,9 +529,10 @@ def sync_player_histories(limit: int = None, seed: bool = True):
                         clearances_blocks_interceptions, recoveries, tackles,
                         influence, creativity, threat,
                         yellow_cards, red_cards, own_goals,
-                        penalties_saved, penalties_missed
-                    ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                        penalties_saved, penalties_missed, season
+                    ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                     ON CONFLICT(player_id, gameweek) DO UPDATE SET
+                        season=EXCLUDED.season,
                         total_points=EXCLUDED.total_points,
                         minutes=EXCLUDED.minutes,
                         goals_scored=EXCLUDED.goals_scored,
@@ -537,6 +581,7 @@ def sync_player_histories(limit: int = None, seed: bool = True):
                     int(_f(gw.get("own_goals"))),
                     int(_f(gw.get("penalties_saved"))),
                     int(_f(gw.get("penalties_missed"))),
+                    season,
                 ))
 
             if seed:
@@ -693,6 +738,7 @@ def sync_event_live(gw: int) -> int:
 
     conn = get_conn()
     c = conn.cursor()
+    season = _season_from_db(c)
 
     c.execute("""
         SELECT DISTINCT p.id, p.price
@@ -722,9 +768,10 @@ def sync_event_live(gw: int) -> int:
                 clearances_blocks_interceptions, recoveries, tackles,
                 influence, creativity, threat,
                 yellow_cards, red_cards, own_goals,
-                penalties_saved, penalties_missed
-            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                penalties_saved, penalties_missed, season
+            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
             ON CONFLICT(player_id, gameweek) DO UPDATE SET
+                season=EXCLUDED.season,
                 total_points=EXCLUDED.total_points,
                 minutes=EXCLUDED.minutes,
                 goals_scored=EXCLUDED.goals_scored,
@@ -774,6 +821,7 @@ def sync_event_live(gw: int) -> int:
             int(s.get("own_goals") or 0),
             int(s.get("penalties_saved") or 0),
             int(s.get("penalties_missed") or 0),
+            season,
         ))
         touched += 1
 

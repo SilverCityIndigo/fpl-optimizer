@@ -15,12 +15,20 @@ app = FastAPI(title="FPL Analyzer API", version="2.0.0")
 # database from auto-pausing. The /admin endpoints below remain as manual
 # fallbacks / on-demand triggers.
 
+# CORS: every browser request comes from the Vercel frontend, so an origin that
+# isn't listed here gets its response blocked by the browser and the UI silently
+# renders empty ("0 players shown") even though the API is healthy. The regex
+# covers Vercel preview deployments and renamed projects, so pointing the app at
+# a new *.vercel.app domain doesn't take the site down again.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:5173",
+        "http://localhost:4173",
         "https://fpl-optimizer-one.vercel.app",
+        "https://thexgfiles.vercel.app",
     ],
+    allow_origin_regex=r"https://(thexgfiles|fpl-optimizer|fpl-lab)[a-z0-9.-]*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
