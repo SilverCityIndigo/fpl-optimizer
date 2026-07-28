@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
-import { getPlayers } from '../api'
 import { PHOTO } from '../playerPhoto'
+import { usePlayers } from '../usePlayers'
 
 const POSITIONS = ['All', 'GKP', 'DEF', 'MID', 'FWD']
 const POS_COLORS = { GKP: 'var(--gold)', DEF: 'var(--info)', MID: 'var(--accent)', FWD: 'var(--danger)' }
@@ -104,21 +104,16 @@ function PlayerCard({ p, allPlayers, onAnalytics }) {
 }
 
 export default function Players({ onAnalytics }) {
-  const [players, setPlayers] = useState([])
-  const [loading, setLoading] = useState(true)
+  const { players, loading } = usePlayers()
   const [position, setPosition] = useState('All')
   const [sortBy, setSortBy] = useState('total_points')
   const [search, setSearch] = useState('')
   const [view, setView] = useState('cards')
 
-  useEffect(() => {
-    setLoading(true)
-    getPlayers(position === 'All' ? null : position)
-      .then(res => setPlayers(res.data))
-      .finally(() => setLoading(false))
-  }, [position])
-
+  // Position is filtered client-side: the full list is already in hand, so
+  // re-requesting it per tab click only added latency.
   const filtered = players
+    .filter(p => position === 'All' || p.position === position)
     .filter(p => p.web_name.toLowerCase().includes(search.toLowerCase()))
     .sort((a, b) => b[sortBy] - a[sortBy])
     .slice(0, 100)

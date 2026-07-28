@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
-import { getPlayers, getCurrentGameweek } from '../api'
+import { getCurrentGameweek } from '../api'
 import { PHOTO } from '../playerPhoto'
+import { usePlayers } from '../usePlayers'
 
 // Where each sidebar destination goes, in the manager's own order of operations:
 // look at the players, move them, pick an armband, time the chips.
@@ -91,12 +92,13 @@ function TopPick({ player, onAnalytics }) {
 
 export default function Home({ onNavigate, onAnalytics }) {
   const [gw, setGw] = useState(null)
-  const [players, setPlayers] = useState(null)
+  const { players: playerList, loading: playersLoading } = usePlayers()
+  // Preserve the original null-until-loaded contract used by the UI below.
+  const players = playersLoading && playerList.length === 0 ? null : playerList
   const [tick, setTick] = useState(0)
 
   useEffect(() => {
     getCurrentGameweek().then(r => { if (!r.data?.error) setGw(r.data) }).catch(() => {})
-    getPlayers().then(r => setPlayers(r.data)).catch(() => setPlayers([]))
   }, [])
 
   // Keep the countdown honest without re-rendering the whole page constantly.

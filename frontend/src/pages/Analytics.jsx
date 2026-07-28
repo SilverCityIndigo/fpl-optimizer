@@ -5,8 +5,9 @@ import {
   Legend, CategoryScale, Filler, BarElement
 } from 'chart.js'
 import { Scatter, Line } from 'react-chartjs-2'
-import { getPlayers, getPlayerHistory } from '../api'
+import { getPlayerHistory } from '../api'
 import { PHOTO } from '../playerPhoto'
+import { usePlayers } from '../usePlayers'
 
 ChartJS.register(LinearScale, PointElement, LineElement, ChartTooltip, Legend, CategoryScale, Filler, BarElement)
 
@@ -414,12 +415,10 @@ const TABS = [
 ]
 
 export default function Analytics({ initialPlayer = null }) {
-  const [players, setPlayers] = useState([])
-  const [loading, setLoading] = useState(true)
+  const { players, loading } = usePlayers()
   const [tab, setTab] = useState('xg')
   const [selectedPlayer, setSelectedPlayer] = useState(initialPlayer)
 
-  useEffect(() => { getPlayers().then(res => setPlayers(res.data)).finally(() => setLoading(false)) }, [])
   useEffect(() => { if (initialPlayer) { setSelectedPlayer(initialPlayer); setTab('timeline') } }, [initialPlayer])
 
   return (
