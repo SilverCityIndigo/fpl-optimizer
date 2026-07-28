@@ -39,7 +39,11 @@ app.include_router(optimizer.router, prefix="/api/optimizer", tags=["optimizer"]
 app.include_router(gameweek.router, prefix="/api/gameweek", tags=["gameweek"])
 
 
-@app.get("/")
+# HEAD is allowed alongside GET because uptime monitors (which keep this
+# instance from sleeping) send HEAD by default — it returns headers only. FastAPI
+# does not add HEAD automatically, so a GET-only route answers 405 and the
+# monitor reports the service as down even though it is healthy.
+@app.api_route("/", methods=["GET", "HEAD"])
 def root():
     return {"status": "FPL Analyzer running"}
 
