@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import Home from './pages/Home'
 import Players from './pages/Players'
 import Transfers from './pages/Transfers'
@@ -11,6 +11,10 @@ import './index.css'
 
 const THEME_KEY = 'xg-files-theme'
 const COLLAPSE_KEY = 'xg-files-collapsed'
+
+// Below this width the sidebar stops being a column and becomes an off-canvas
+// drawer, so the content gets the whole screen instead of ~72px of it.
+const MOBILE_Q = '(max-width: 900px)'
 
 function getInitialTheme() {
   if (typeof window === 'undefined') return 'dark'
@@ -40,6 +44,15 @@ function Sigil() {
   )
 }
 
+// Sun when the lights are off, moon when they are on — i.e. what you get if you press it.
+function ThemeIcon({ theme }) {
+  return theme === 'dark' ? (
+    <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="4.2" /><path d="M12 3v2.4M12 18.6V21M3 12h2.4M18.6 12H21M5.6 5.6l1.7 1.7M16.7 16.7l1.7 1.7M18.4 5.6l-1.7 1.7M7.3 16.7l-1.7 1.7" /></svg>
+  ) : (
+    <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M20 14.5A8.5 8.5 0 1 1 9.5 4a6.6 6.6 0 0 0 10.5 10.5z" /></svg>
+  )
+}
+
 const NAV = [
   { key: 'home',          label: 'Home',      icon: <path d="M4 10.5 12 4l8 6.5V20H4z" /> },
   { group: 'Squad' },
@@ -55,14 +68,26 @@ const NAV = [
 
 const PAGE_KEYS = NAV.filter(n => n.key).map(n => n.key)
 
-// Home is the bare URL: "/" and "/home" both land there, and it is the only page
-// that does not carry a hash, so a fresh visit never gets bounced to "#players".
-function homePath() {
-  return window.location.pathname.replace(/\/home\/?$/, '/') + window.location.search
+// ─── Routing ────────────────────────────────────────────────────────────────
+// Pages live on real paths — "/players", "/captain" — with home on the bare "/".
+// Deep links work because vercel.json rewrites every path to index.html, so the
+// server hands back the app and the code below reads the page off the pathname.
+const BASE = import.meta.env.BASE_URL.replace(/\/+$/, '')
+
+function urlFor(page) {
+  return (BASE + (page === 'home' ? '/' : `/${page}`)) + window.location.search
 }
+
 function pageFromUrl() {
-  const h = (window.location.hash || '').replace(/^#/, '')
-  if (PAGE_KEYS.includes(h)) return h
+  const path = window.location.pathname
+  const rest = path.startsWith(BASE) ? path.slice(BASE.length) : path
+  const seg = rest.replace(/^\/+|\/+$/g, '').toLowerCase()
+  if (PAGE_KEYS.includes(seg)) return seg
+  // Links minted by the old hash router ("/#captain") still resolve.
+  if (!seg) {
+    const legacy = (window.location.hash || '').replace(/^#/, '').toLowerCase()
+    if (PAGE_KEYS.includes(legacy)) return legacy
+  }
   return 'home'
 }
 
@@ -71,6 +96,10 @@ export default function App() {
   const [theme, setTheme] = useState(getInitialTheme)
   const [collapsed, setCollapsed] = useState(() => window.localStorage.getItem(COLLAPSE_KEY) === '1')
   const [analyticsPlayer, setAnalyticsPlayer] = useState(null)
+  const [isMobile, setIsMobile] = useState(() => window.matchMedia(MOBILE_Q).matches)
+  const [navOpen, setNavOpen] = useState(false)
+  const menuBtnRef = useRef(null)
+  const drawerCloseRef = useRef(null)
 
   // Shared team ID state across Transfers, Captain, Chips
   const [sharedTeamId, setSharedTeamId] = useState('')
@@ -85,25 +114,55 @@ export default function App() {
     try { window.localStorage.setItem(COLLAPSE_KEY, collapsed ? '1' : '0') } catch { /* ignore */ }
   }, [collapsed])
 
-  // Wire the browser back/forward buttons to move between our pages.
+  // Wire the browser back/forward buttons to move between our pages. The
+  // replaceState also canonicalises the address bar, so a legacy "/#captain"
+  // link rewrites itself to "/captain" on arrival.
   useEffect(() => {
-    window.history.replaceState({ page }, '', page === 'home' ? homePath() : '#' + page)
+    window.history.replaceState({ page }, '', urlFor(page))
     const onPop = e => setPage(e.state?.page || pageFromUrl())
-    // pushState never fires hashchange, so this only catches a hand-edited address bar.
-    const onHash = () => setPage(pageFromUrl())
     window.addEventListener('popstate', onPop)
-    window.addEventListener('hashchange', onHash)
-    return () => {
-      window.removeEventListener('popstate', onPop)
-      window.removeEventListener('hashchange', onHash)
-    }
+    return () => window.removeEventListener('popstate', onPop)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // Track the drawer breakpoint so the desktop-only collapsed state and the
+  // drawer never fight over the same element.
+  useEffect(() => {
+    const mq = window.matchMedia(MOBILE_Q)
+    const onChange = e => {
+      setIsMobile(e.matches)
+      if (!e.matches) setNavOpen(false)
+    }
+    mq.addEventListener('change', onChange)
+    return () => mq.removeEventListener('change', onChange)
+  }, [])
+
+  // While the drawer is open: freeze the page behind it and close on Escape.
+  useEffect(() => {
+    if (!navOpen) return
+    const prevOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    drawerCloseRef.current?.focus()
+    const onKey = e => { if (e.key === 'Escape') closeNav() }
+    window.addEventListener('keydown', onKey)
+    return () => {
+      document.body.style.overflow = prevOverflow
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [navOpen])
+
+  // Hand focus back to the button that opened the drawer. On desktop that
+  // button is display:none, so this is a no-op there.
+  function closeNav() {
+    setNavOpen(false)
+    menuBtnRef.current?.focus()
+  }
+
   function navigate(next) {
+    if (navOpen) closeNav()
     if (next === page) return
     setPage(next)
-    window.history.pushState({ page: next }, '', next === 'home' ? homePath() : '#' + next)
+    window.history.pushState({ page: next }, '', urlFor(next))
     window.scrollTo(0, 0)
   }
 
@@ -114,9 +173,23 @@ export default function App() {
     navigate('analytics')
   }
 
+  const themeTitle = theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'
+  const currentLabel = NAV.find(n => n.key === page)?.label ?? 'Home'
+  const shellClass = [
+    'app-shell',
+    !isMobile && collapsed ? 'collapsed' : '',
+    navOpen ? 'nav-open' : '',
+  ].filter(Boolean).join(' ')
+
   return (
-    <div className={`app-shell${collapsed ? ' collapsed' : ''}`}>
-      <aside className="sidebar">
+    <div className={shellClass}>
+      <div className="nav-scrim" onClick={closeNav} aria-hidden="true" />
+
+      <aside id="app-sidebar" className="sidebar" aria-label="Main navigation">
+        <button ref={drawerCloseRef} className="drawer-close" onClick={closeNav} aria-label="Close navigation">
+          <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.9" strokeLinecap="round"><path d="M6 6l12 12M18 6 6 18" /></svg>
+        </button>
+
         <div className="brand">
           <button className="brand-id" onClick={() => navigate('home')} title="The xG Files">
             <span className="brand-sigil"><Sigil /></span>
@@ -141,6 +214,7 @@ export default function App() {
                 className={`nav-item${page === item.key ? ' active' : ''}`}
                 onClick={() => navigate(item.key)}
                 title={item.label}
+                aria-current={page === item.key ? 'page' : undefined}
               >
                 <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">{item.icon}</svg>
                 <span className="nav-txt">{item.label}</span>
@@ -150,13 +224,8 @@ export default function App() {
         </nav>
 
         <div className="side-foot">
-          <button className="theme-toggle" onClick={toggleTheme}
-            title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}>
-            {theme === 'dark' ? (
-              <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="4.2" /><path d="M12 3v2.4M12 18.6V21M3 12h2.4M18.6 12H21M5.6 5.6l1.7 1.7M16.7 16.7l1.7 1.7M18.4 5.6l-1.7 1.7M7.3 16.7l-1.7 1.7" /></svg>
-            ) : (
-              <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M20 14.5A8.5 8.5 0 1 1 9.5 4a6.6 6.6 0 0 0 10.5 10.5z" /></svg>
-            )}
+          <button className="theme-toggle" onClick={toggleTheme} title={themeTitle}>
+            <ThemeIcon theme={theme} />
             <span className="nav-txt">{theme === 'dark' ? 'Light mode' : 'Dark mode'}</span>
           </button>
 
@@ -168,6 +237,32 @@ export default function App() {
       </aside>
 
       <main className="main">
+        {/* Mobile-only bar. It carries the drawer trigger, so the nav costs no
+            horizontal space until it is asked for. */}
+        <header className="topbar">
+          <button
+            ref={menuBtnRef}
+            className="topbar-btn"
+            onClick={() => setNavOpen(true)}
+            aria-label="Open navigation"
+            aria-expanded={navOpen}
+            aria-controls="app-sidebar"
+          >
+            <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.9" strokeLinecap="round"><path d="M4 7h16M4 12h16M4 17h16" /></svg>
+          </button>
+
+          <button className="topbar-brand" onClick={() => navigate('home')} title="The xG Files">
+            <span className="topbar-sigil"><Sigil /></span>
+            <span className="topbar-word"><span className="xg">xG</span> FILES</span>
+          </button>
+
+          <span className="topbar-page">{currentLabel}</span>
+
+          <button className="topbar-btn" onClick={toggleTheme} aria-label={themeTitle} title={themeTitle}>
+            <ThemeIcon theme={theme} />
+          </button>
+        </header>
+
         <div className="page">
           {page === 'home'          && <Home onNavigate={navigate} onAnalytics={goToAnalytics} />}
           {page === 'players'       && <Players onAnalytics={goToAnalytics} />}

@@ -27,33 +27,22 @@ function XGStats({ player }) {
 }
 
 function PitchPlayerCard({ player, isBench }) {
+  const [imgOk, setImgOk] = useState(true)
   const pts = player.projected_points
   const fixture = player.next_fixture || ''
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: '100px' }}>
-      <div style={{
-        width: '68px', height: '68px', borderRadius: '50%', overflow: 'hidden',
-        background: 'rgba(0,0,0,0.4)', border: `3px solid ${isBench ? '#4b5563' : '#e8eef8'}`,
-        marginBottom: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center',
-        boxShadow: isBench ? 'none' : '0 3px 10px rgba(0,0,0,0.6)',
-      }}>
-        {player.code ? (
-          <img src={PHOTO(player.code)} alt={player.web_name}
-            style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'top' }}
-            onError={e => { e.target.style.display = 'none'; e.target.parentNode.innerHTML = `<span style="font-size:22px;color:#cbd5e1">${player.web_name?.[0] || '·'}</span>` }} />
-        ) : <span style={{ fontSize: '22px', color: '#cbd5e1' }}>{player.web_name?.[0] || '·'}</span>}
+    <div className={`pitch-card${isBench ? ' bench' : ''}`}>
+      <div className="pitch-face">
+        {player.code && imgOk
+          ? <img src={PHOTO(player.code)} alt={player.web_name} onError={() => setImgOk(false)} />
+          : <span className="pitch-face-initial">{player.web_name?.[0] || '·'}</span>}
       </div>
-      <div style={{
-        background: 'rgba(10,10,20,0.85)', color: '#fff', fontSize: '11px', fontWeight: 700,
-        padding: '3px 8px', borderRadius: '4px', maxWidth: '100px', textAlign: 'center',
-        whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginBottom: '3px',
-        border: '1px solid rgba(255,255,255,0.15)',
-      }}>{player.web_name}</div>
-      <div style={{ color: '#fff', fontSize: '10px', fontWeight: 600, marginBottom: '3px', textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}>{player.team_name}</div>
+      <div className="pitch-name">{player.web_name}</div>
+      <div className="pitch-club">{player.team_name}</div>
       {!isBench && (
-        <div style={{ display: 'flex', gap: '3px', alignItems: 'center' }}>
-          {fixture && <div style={{ background: 'rgba(10,10,20,0.85)', color: 'var(--accent)', fontSize: '9px', fontWeight: 700, padding: '2px 5px', borderRadius: '3px', border: '1px solid rgba(49,224,164,0.4)', whiteSpace: 'nowrap' }}>{fixture}</div>}
-          {pts != null && <div style={{ background: 'rgba(10,10,20,0.85)', color: '#ffd257', fontSize: '9px', fontWeight: 700, padding: '2px 5px', borderRadius: '3px', border: '1px solid rgba(255,210,87,0.4)', whiteSpace: 'nowrap' }}>{pts} pts</div>}
+        <div className="pitch-chips">
+          {fixture && <span className="pitch-chip fix">{fixture}</span>}
+          {pts != null && <span className="pitch-chip pts">{pts} pts</span>}
         </div>
       )}
     </div>
@@ -73,21 +62,21 @@ function PitchView({ squad, picks }) {
   const fwds = starters.filter(p => p.position === 'FWD')
   const totalProj = starters.reduce((sum, p) => sum + (p.projected_points || 0), 0)
   const Row = ({ players, isBench = false }) => (
-    <div style={{ display: 'flex', justifyContent: 'space-evenly', alignItems: 'center', width: '100%', padding: '4px 16px', boxSizing: 'border-box' }}>
+    <div className="pitch-row">
       {players.map(p => <PitchPlayerCard key={p.id} player={p} isBench={isBench} />)}
     </div>
   )
   return (
-    <div style={{ borderRadius: '12px', overflow: 'hidden', marginBottom: '18px', border: '1px solid var(--line)' }}>
-      <div style={{ background: 'rgba(0,0,0,0.7)', padding: '8px 16px', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px' }}>
-        <span style={{ color: '#cbd5e1', fontSize: '12px' }}>Projected GW points (Starting 11):</span>
-        <span style={{ color: '#ffd257', fontWeight: 700, fontSize: '16px' }}>{totalProj.toFixed(1)} pts</span>
+    <div className="pitch">
+      <div className="pitch-head">
+        <span>Projected GW points (Starting 11):</span>
+        <b>{totalProj.toFixed(1)} pts</b>
       </div>
-      <div style={{ background: `url(${pitchImg}) top center/cover no-repeat`, display: 'flex', flexDirection: 'column', justifyContent: 'space-evenly', minHeight: '520px', padding: '12px 0', boxSizing: 'border-box' }}>
+      <div className="pitch-grass" style={{ background: `url(${pitchImg}) top center/cover no-repeat` }}>
         <Row players={gkp} /><Row players={defs} /><Row players={mids} /><Row players={fwds} />
       </div>
-      <div style={{ background: '#0d1422', borderTop: '2px dashed #374151', padding: '12px 8px 16px' }}>
-        <div style={{ color: '#9ca3af', fontSize: '11px', textAlign: 'center', marginBottom: '10px', textTransform: 'uppercase', letterSpacing: '.08em' }}>Bench</div>
+      <div className="pitch-bench">
+        <div className="pitch-bench-k">Bench</div>
         <Row players={bench} isBench />
       </div>
     </div>
@@ -266,7 +255,7 @@ export default function Transfers({ sharedTeamId, setSharedTeamId, sharedSquadDa
                 <span style={{ color: 'var(--accent)', fontWeight: 700, fontSize: '15px' }}>IN: {s.buy.web_name}</span>
                 <span style={{ marginLeft: 'auto', color: getValueColor(s.points_gain), fontWeight: 700, fontSize: '15px' }}>+{s.points_gain} pts</span>
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(210px, 100%), 1fr))', gap: '12px' }}>
                 {[['Selling', s.sell, 'var(--danger)'], ['Buying', s.buy, 'var(--accent)']].map(([label, p, color]) => (
                   <div key={label} className="panel" style={{ padding: '12px', background: 'var(--surface)' }}>
                     <div style={{ color, fontSize: '12px', fontWeight: 700, marginBottom: '8px' }}>{label}</div>

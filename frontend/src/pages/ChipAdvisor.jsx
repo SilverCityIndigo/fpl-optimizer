@@ -71,7 +71,7 @@ export default function ChipAdvisor({ sharedTeamId, setSharedTeamId, sharedSquad
             ))}
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '14px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(320px, 100%), 1fr))', gap: '14px' }}>
             {Object.entries(chips).map(([key, chip]) => {
               const config = CHIP_CONFIG[key]
               const isAvailable = chipsAvailable ? (chipsAvailable[config.apiKey] ?? true) : true
