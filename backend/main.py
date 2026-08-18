@@ -34,6 +34,20 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.on_event("startup")
+def ensure_schema_on_boot():
+    """Apply additive column migrations at boot. Without this, deploying code
+    that reads a newly added column would 500 on every request until the next
+    scheduled sync happened to run init_db — a gap of up to two hours. Failures
+    are logged, not raised, so a transient database blip can't stop the API
+    from starting."""
+    try:
+        from data.fpl_fetcher import ensure_schema_columns
+        ensure_schema_columns()
+    except Exception as exc:  # noqa: BLE001 - startup must not hard-fail
+        print(f"⚠️  Schema column check skipped: {exc}")
+
+
 app.include_router(players.router, prefix="/api/players", tags=["players"])
 app.include_router(optimizer.router, prefix="/api/optimizer", tags=["optimizer"])
 app.include_router(gameweek.router, prefix="/api/gameweek", tags=["gameweek"])

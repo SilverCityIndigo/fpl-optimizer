@@ -6,6 +6,11 @@ from services.optimizer import get_players_for_optimization
 
 router = APIRouter()
 
+# Differential scout tuning.
+DIFF_MAX_OWNERSHIP = 15.0   # above this a pick isn't a differential
+DIFF_MIN_PROJECTION = 2.0   # floor so the list isn't padded with bench fodder
+DIFF_OWNERSHIP_WEIGHT = 0.35  # how much to favour the least-owned of equals
+
 
 def get_db():
     conn = psycopg2.connect(os.environ["DATABASE_URL"])
@@ -73,38 +78,27 @@ def get_differentials():
     c = conn.cursor()
     started = _season_started(c)
 
-    if started:
-        # In-season: reward form + scoring rate at low ownership.
-        c.execute("""
-            SELECT p.id, p.code, p.web_name, p.position, p.price,
-                   p.total_points, p.points_per_game, p.form,
-                   p.selected_by_percent, p.status, p.minutes,
-                   COALESCE(p.projected_points, 0) as projected_points,
-                   t.short_name as team_name, t.id as team_id
-            FROM players p
-            JOIN teams t ON p.team_id = t.id
-            WHERE p.status = 'a'
-              AND p.form::float >= 4.0
-              AND p.points_per_game::float >= 3.5
-              AND p.selected_by_percent::float < 15.0
-              AND p.minutes > 0
-            ORDER BY p.form::float DESC
-        """)
-    else:
-        # Pre-season: no form yet — rank low-ownership players by projection.
-        c.execute("""
-            SELECT p.id, p.code, p.web_name, p.position, p.price,
-                   p.total_points, p.points_per_game, p.form,
-                   p.selected_by_percent, p.status, p.minutes,
-                   COALESCE(p.projected_points, 0) as projected_points,
-                   t.short_name as team_name, t.id as team_id
-            FROM players p
-            JOIN teams t ON p.team_id = t.id
-            WHERE p.status = 'a'
-              AND p.selected_by_percent::float < 15.0
-              AND p.projected_points IS NOT NULL
-            ORDER BY p.projected_points DESC
-        """)
+    # One query for both cases. The old in-season branch gated on
+    # form >= 4 AND points_per_game >= 3.5, which returns almost nobody in the
+    # opening weeks (form is a 30-day average, so after GW1 it is just one
+    # scoreline) and then ranked purely on form — pure recency chasing, which is
+    # the opposite of what this tool is for. Ranking now uses the projection,
+    # which already folds in form, xG and fixture, with an ownership kicker.
+    c.execute("""
+        SELECT p.id, p.code, p.web_name, p.position, p.price,
+               p.total_points, p.points_per_game, p.form,
+               p.selected_by_percent, p.status, p.minutes,
+               COALESCE(p.projected_points, 0) as projected_points,
+               COALESCE(p.projected_horizon, p.projected_points, 0) as projected_horizon,
+               t.short_name as team_name, t.id as team_id
+        FROM players p
+        JOIN teams t ON p.team_id = t.id
+        WHERE p.status = 'a'
+          AND p.selected_by_percent::float < %s
+          AND p.projected_points IS NOT NULL
+          AND p.projected_points >= %s
+        ORDER BY p.projected_points DESC
+    """, (DIFF_MAX_OWNERSHIP, DIFF_MIN_PROJECTION))
     players = rows_to_dicts(c)
 
     c.execute("""
@@ -132,33 +126,24 @@ def get_differentials():
         fdr = fdr_map.get(p["team_id"], 3)
         fixture = fixture_map.get(p["team_id"], "Unknown")
         fdr_label = fdr_labels.get(fdr, "Medium")
-        form = float(p["form"])
-        ppg = float(p["points_per_game"])
-        ownership = float(p["selected_by_percent"])
+        form = float(p["form"] or 0)
+        ppg = float(p["points_per_game"] or 0)
+        ownership = float(p["selected_by_percent"] or 0)
         proj = float(p["projected_points"] or 0)
+        horizon = float(p["projected_horizon"] or proj)
 
-        if started:
-            reasons = []
-            if form >= 7:
-                reasons.append(f"on fire with {form} form")
-            elif form >= 5:
-                reasons.append(f"in great form ({form})")
-            else:
-                reasons.append(f"decent form ({form})")
-            if ppg >= 6:
-                reasons.append(f"elite {ppg} PPG")
-            elif ppg >= 5:
-                reasons.append(f"strong {ppg} PPG")
-            else:
-                reasons.append(f"{ppg} PPG")
+        # A differential is output the field hasn't priced in yet, so score on
+        # sustained expected points and lean towards the least-owned of equals.
+        own_kicker = 1.0 + DIFF_OWNERSHIP_WEIGHT * (
+            1.0 - min(ownership, DIFF_MAX_OWNERSHIP) / DIFF_MAX_OWNERSHIP
+        )
+        diff_score = horizon * own_kicker
+
+        reasons = [f"projected {round(horizon, 1)} pts per gameweek"]
+        if started and form > 0:
+            reasons.append(f"{form} form and {ppg} PPG behind it")
         else:
-            # Pre-season framing: projection + pedigree rather than form.
-            reasons = [f"projected {round(proj, 1)} pts next GW"]
-            if fdr <= 2:
-                reasons.append("strong underlying numbers")
-            else:
-                reasons.append("promising underlying numbers")
-
+            reasons.append("strong underlying numbers")
         if fdr <= 2:
             reasons.append(f"faces an easy fixture ({fixture})")
         elif fdr == 3:
@@ -167,7 +152,10 @@ def get_differentials():
             reasons.append(f"tough fixture ({fixture})")
         reasons.append(f"only {ownership}% owned")
         why = f"{reasons[0].capitalize()}, {reasons[1]}, {reasons[2]}, and {reasons[3]}."
-        result.append({**p, "fdr": fdr, "fdr_label": fdr_label, "fixture": fixture, "why": why})
+        result.append({**p, "fdr": fdr, "fdr_label": fdr_label, "fixture": fixture,
+                       "diff_score": round(diff_score, 2), "why": why})
+
+    result.sort(key=lambda x: -x["diff_score"])
     return result
 
 
