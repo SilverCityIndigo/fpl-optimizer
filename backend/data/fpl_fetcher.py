@@ -219,8 +219,17 @@ def init_db():
         )
     """)
 
-    # New columns for seeding + precomputed projections. ADD ... IF NOT EXISTS
-    # so existing Supabase tables get upgraded in place.
+    _ensure_columns(c)
+
+    conn.commit()
+    conn.close()
+    print("✅ Schema ready (tables + columns ensured).")
+
+
+def _ensure_columns(c) -> None:
+    """Additive column migrations, split out of init_db so anything that reads or
+    writes these columns can guarantee they exist first. Idempotent and cheap:
+    ADD COLUMN IF NOT EXISTS on an existing column is a no-op."""
     new_cols = [
         ("players", "seed_xg90", "DOUBLE PRECISION DEFAULT 0.0"),
         ("players", "seed_xa90", "DOUBLE PRECISION DEFAULT 0.0"),
@@ -229,6 +238,9 @@ def init_db():
         ("players", "last_season_minutes", "INTEGER DEFAULT 0"),
         ("players", "xg_source", "TEXT DEFAULT ''"),
         ("players", "projected_points", "DOUBLE PRECISION"),
+        # Expected points per gameweek across the next few fixtures, used by the
+        # transfer and hit maths so a multi-week decision isn't judged on one game.
+        ("players", "projected_horizon", "DOUBLE PRECISION"),
         ("players", "projected_updated_at", "TEXT"),
         ("player_gameweek_history", "season", "TEXT"),
         # Guard against older schemas missing the newer stat columns.
@@ -240,9 +252,15 @@ def init_db():
     for table, col, coltype in new_cols:
         c.execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {col} {coltype}")
 
+
+def ensure_schema_columns() -> None:
+    """Standalone column migration for callers that don't run a full init_db —
+    the API on boot, and sync_projections when invoked on its own."""
+    conn = get_conn()
+    c = conn.cursor()
+    _ensure_columns(c)
     conn.commit()
     conn.close()
-    print("✅ Schema ready (tables + columns ensured).")
 
 
 # --------------------------------------------------------------------------- #
@@ -890,16 +908,20 @@ def sync_projections() -> int:
     the API can serve projections with a single fast SELECT instead of
     recomputing per request. Returns number of players projected."""
     from services.optimizer import compute_projections
+    # Safe to call directly (the "projections" CLI command does), so guarantee the
+    # columns written below exist rather than relying on init_db having run.
+    ensure_schema_columns()
     projections = compute_projections()  # [{id, projected_points}, ...]
     now = _now_iso()
     conn = get_conn()
     c = conn.cursor()
     # Reset first so players who dropped out of eligibility go back to NULL.
-    c.execute("UPDATE players SET projected_points = NULL")
+    c.execute("UPDATE players SET projected_points = NULL, projected_horizon = NULL")
     for row in projections:
         c.execute(
-            "UPDATE players SET projected_points=%s, projected_updated_at=%s WHERE id=%s",
-            (row["projected_points"], now, row["id"]),
+            "UPDATE players SET projected_points=%s, projected_horizon=%s, "
+            "projected_updated_at=%s WHERE id=%s",
+            (row["projected_points"], row.get("projected_horizon"), now, row["id"]),
         )
     conn.commit()
     conn.close()

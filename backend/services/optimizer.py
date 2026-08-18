@@ -34,6 +34,19 @@ GW_LOOKBACK = 6
 # Current-season minutes at which we fully trust live numbers over the seed.
 BLEND_FULL_MINUTES = 450.0
 
+# How many gameweeks ahead the transfer/hit maths looks. A transfer is a
+# multi-week commitment, so ranking it on one fixture is mostly noise.
+HORIZON_GWS = 5
+
+# Fixture difficulty is applied ONCE, here, to the attacking part of a
+# projection. Clean sheets get their own opponent adjustment further down, so
+# multiplying them by this as well would double-count the same fixture.
+FDR_MULTIPLIERS = {1: 1.20, 2: 1.10, 3: 1.00, 4: 0.90, 5: 0.80}
+
+# Formation legality for "best available XI" (1 GKP is implicit).
+FORMATION_MIN = {"DEF": 3, "MID": 2, "FWD": 1}
+FORMATION_MAX = {"DEF": 5, "MID": 5, "FWD": 3}
+
 
 def get_db():
     return psycopg2.connect(os.environ["DATABASE_URL"])
@@ -129,20 +142,37 @@ def compute_projections(gw_lookback: int = GW_LOOKBACK) -> list[dict]:
             bucket.append((float(pts or 0), float(mins or 0),
                            float(bonus or 0), float(bps or 0)))
 
-    # --- Next-GW fixtures: FDR, opponent, venue ----------------------------- #
-    c.execute("""
-        SELECT f.team_h, f.team_a, f.team_h_difficulty, f.team_a_difficulty
-        FROM fixtures f
-        WHERE f.gameweek = (SELECT id FROM gameweeks WHERE is_next = 1 LIMIT 1)
-    """)
-    fdr_map, opponent_map, is_home_map = {}, {}, {}
-    for team_h, team_a, fdh, fda in c.fetchall():
-        fdr_map[team_h] = fdh
-        fdr_map[team_a] = fda
-        opponent_map[team_h] = team_a
-        opponent_map[team_a] = team_h
-        is_home_map[team_h] = True
-        is_home_map[team_a] = False
+    # --- Fixtures across the horizon ---------------------------------------- #
+    # Keyed team -> gameweek -> [(fdr, is_home, opponent_id), ...]. A list per
+    # gameweek because a team can have two fixtures (double) or none (blank);
+    # the old single-value map silently dropped one half of a double and
+    # projected blanks as if the team were playing.
+    c.execute("SELECT id FROM gameweeks WHERE is_next = 1 LIMIT 1")
+    row = c.fetchone()
+    next_gw = row[0] if row else None
+
+    fixtures_by_team: dict[int, dict[int, list]] = {}
+    horizon_gws: list[int] = []
+    if next_gw is not None:
+        horizon_gws = list(range(next_gw, next_gw + HORIZON_GWS))
+        c.execute("""
+            SELECT f.gameweek, f.team_h, f.team_a,
+                   f.team_h_difficulty, f.team_a_difficulty
+            FROM fixtures f
+            WHERE f.gameweek >= %s AND f.gameweek < %s
+        """, (next_gw, next_gw + HORIZON_GWS))
+        for gw, team_h, team_a, fdh, fda in c.fetchall():
+            fixtures_by_team.setdefault(team_h, {}).setdefault(gw, []).append(
+                (fdh or 3, True, team_a))
+            fixtures_by_team.setdefault(team_a, {}).setdefault(gw, []).append(
+                (fda or 3, False, team_h))
+
+    # Safety valve: if NO team has a fixture for the next gameweek the fixture
+    # table simply has not been populated yet. Treat everyone as playing one
+    # average match rather than projecting the entire league to zero.
+    next_gw_loaded = any(
+        next_gw in by_gw and by_gw[next_gw] for by_gw in fixtures_by_team.values()
+    )
 
     # --- Team clean-sheet rates + attack strength (bulk) -------------------- #
     def _cs_rates(is_home: bool) -> dict:
@@ -183,7 +213,10 @@ def compute_projections(gw_lookback: int = GW_LOOKBACK) -> list[dict]:
         avg = (atk_home if opp_is_home else atk_away).get(opp_id, 1.3)
         return round(min(1.5, max(0.5, 0.5 + (avg / 1.3) * 0.5)), 3)
 
-    fdr_multipliers = {1: 1.20, 2: 1.10, 3: 1.00, 4: 0.90, 5: 0.80}
+    def _clean_sheet_prob(team_id: int, is_home: bool, opp_id: int) -> float:
+        base = (cs_rate_home if is_home else cs_rate_away).get(team_id, 0.3)
+        adj = base / _opp_attack_factor(opp_id, not is_home)
+        return min(0.85, max(0.05, adj))
 
     for p in players:
         pid, position, team_id = p["id"], p["position"], p["team_id"]
@@ -227,36 +260,60 @@ def compute_projections(gw_lookback: int = GW_LOOKBACK) -> list[dict]:
                 eff_w = max_w * conf
                 blended = (1 - eff_w) * decay_score + eff_w * xg_signal
 
-        # Clean-sheet contribution.
-        is_home = is_home_map.get(team_id, True)
-        opp_id = opponent_map.get(team_id)
-        cs_pts = CS_PTS.get(position, 0)
-        if cs_pts > 0 and opp_id is not None:
-            base_cs = cs_rate_home.get(team_id, 0.3) if is_home else cs_rate_away.get(team_id, 0.3)
-            adj_cs = base_cs / _opp_attack_factor(opp_id, not is_home)
-            adj_cs = min(0.85, max(0.05, adj_cs))
-            cs_bonus = adj_cs * cs_pts
-        else:
-            adj_cs, cs_bonus = 0.0, 0.0
-        p["cs_probability"] = round(adj_cs if cs_pts > 0 else 0.0, 3)
-
         defcon_bonus = 0.0
         if position == "DEF":
             defcon_bonus = defcon_rate_def * DEFCON_PTS
         elif position == "MID":
             defcon_bonus = defcon_rate_mid * DEFCON_PTS
 
-        projected = blended + cs_bonus + defcon_bonus + avg_bonus
-
+        # Everything above is fixture-independent: a per-match scoring rate.
+        base_rate = blended + defcon_bonus + avg_bonus
         chance = p["chance_of_playing"]
         if chance is not None and chance < 100:
-            projected *= (chance / 100.0)
+            base_rate *= (chance / 100.0)
 
-        fdr = fdr_map.get(team_id, 3)
-        projected *= fdr_multipliers.get(fdr, 1.0)
+        cs_pts = CS_PTS.get(position, 0)
+        by_gw = fixtures_by_team.get(team_id, {})
+
+        def _match_points(fixture) -> tuple[float, float]:
+            """Points for one fixture, plus its clean-sheet probability. FDR
+            scales the attacking rate; the clean sheet is scaled by the
+            opponent's attack instead, so no fixture is counted twice."""
+            fdr, is_home, opp_id = fixture
+            attack = base_rate * FDR_MULTIPLIERS.get(fdr, 1.0)
+            if cs_pts > 0 and opp_id is not None:
+                cs_prob = _clean_sheet_prob(team_id, is_home, opp_id)
+                return attack + cs_prob * cs_pts, cs_prob
+            return attack, 0.0
+
+        next_fixtures = by_gw.get(next_gw, []) if next_gw is not None else []
+        if not next_fixtures and not next_gw_loaded:
+            # Fixture data missing entirely — assume one neutral home match.
+            next_fixtures = [(3, True, None)]
+
+        # Sum, not average: a blank gameweek scores nothing and a double counts
+        # both matches.
+        next_results = [_match_points(f) for f in next_fixtures]
+        projected = sum(pts for pts, _ in next_results)
+        cs_prob_display = max((cs for _, cs in next_results), default=0.0)
+
+        # Multi-week rate for transfer decisions, expressed as points per
+        # gameweek so it stays comparable to the single-gameweek projection.
+        horizon_total = 0.0
+        for gw in horizon_gws:
+            fixtures = by_gw.get(gw, [])
+            if not fixtures and not next_gw_loaded:
+                fixtures = [(3, True, None)]
+            horizon_total += sum(pts for pts, _ in (_match_points(f) for f in fixtures))
+        horizon_per_gw = horizon_total / len(horizon_gws) if horizon_gws else projected
+
+        fdr = next_fixtures[0][0] if next_fixtures else 3
 
         p["projected_points"] = round(projected, 3)
+        p["projected_horizon"] = round(horizon_per_gw, 3)
+        p["cs_probability"] = round(cs_prob_display if cs_pts > 0 else 0.0, 3)
         p["fdr"] = fdr
+        p["next_gw_fixtures"] = len(next_fixtures)
         p["_decay_score"] = round(decay_score, 3)
         p["_eff_xg90"] = round(eff_xg90, 3)
         p["_eff_xa90"] = round(eff_xa90, 3)
@@ -279,14 +336,16 @@ def get_players_for_optimization(db_path: str = None, gw_lookback: int = GW_LOOK
                p.total_points, p.points_per_game, p.form, p.minutes, p.status,
                t.short_name AS team_name,
                COALESCE(p.xg_per90, 0.0), COALESCE(p.xa_per90, 0.0),
-               COALESCE(p.xgi_per90, 0.0), p.projected_points
+               COALESCE(p.xgi_per90, 0.0), p.projected_points,
+               COALESCE(p.projected_horizon, p.projected_points)
         FROM players p
         JOIN teams t ON p.team_id = t.id
         WHERE p.projected_points IS NOT NULL
     """)
     cols = ["id", "code", "web_name", "team_id", "position", "price",
             "total_points", "points_per_game", "form", "minutes", "status",
-            "team_name", "xg_per90", "xa_per90", "xgi_per90", "projected_points"]
+            "team_name", "xg_per90", "xa_per90", "xgi_per90", "projected_points",
+            "projected_horizon"]
     players = [dict(zip(cols, row)) for row in c.fetchall()]
 
     c.execute("""
@@ -302,7 +361,8 @@ def get_players_for_optimization(db_path: str = None, gw_lookback: int = GW_LOOK
 
     for p in players:
         for f in ["price", "total_points", "points_per_game", "form", "minutes",
-                  "xg_per90", "xa_per90", "xgi_per90", "projected_points"]:
+                  "xg_per90", "xa_per90", "xgi_per90", "projected_points",
+                  "projected_horizon"]:
             if p.get(f) is not None:
                 p[f] = float(p[f])
         p["fdr"] = fdr_map.get(p["team_id"], 3)
@@ -369,6 +429,42 @@ def optimize_squad(budget: float = 100.0, db_path: str = None, bench_weight: flo
     }
 
 
+def _team_counts(squad_ids: list, player_map: dict) -> dict:
+    counts: dict[int, int] = {}
+    for pid in squad_ids:
+        p = player_map.get(pid)
+        if p:
+            counts[p["team_id"]] = counts.get(p["team_id"], 0) + 1
+    return counts
+
+
+def _buy_candidates(sell_player, players, squad_ids, player_map, budget_itb,
+                    exclude_ids=frozenset()):
+    """Legal replacements for one player: same position, affordable, available,
+    and not breaking the three-per-club rule."""
+    counts = _team_counts(squad_ids, player_map)
+    # Selling frees a slot at the outgoing player's club.
+    counts[sell_player["team_id"]] = counts.get(sell_player["team_id"], 1) - 1
+    available_budget = budget_itb + sell_player["price"]
+    return [
+        p for p in players
+        if p["position"] == sell_player["position"]
+        and p["id"] not in squad_ids
+        and p["id"] not in exclude_ids
+        and p["price"] <= available_budget
+        # 'a' available, 'd' doubtful (already discounted in the projection).
+        and p["status"] in ("a", "d")
+        and counts.get(p["team_id"], 0) < 3
+    ]
+
+
+def _gain(buy_player, sell_player) -> float:
+    """Expected points per gameweek gained, over the whole horizon rather than
+    the next fixture alone. A transfer is a multi-week commitment, so judging it
+    on one fixture just chases whoever happens to have an easy game."""
+    return buy_player["projected_horizon"] - sell_player["projected_horizon"]
+
+
 def suggest_transfers(current_squad_ids: list, budget_itb: float, free_transfers: int = 1, db_path: str = None):
     players = get_players_for_optimization()
     player_map = {p["id"]: p for p in players}
@@ -376,25 +472,31 @@ def suggest_transfers(current_squad_ids: list, budget_itb: float, free_transfers
     transfer_suggestions = []
 
     for sell_player in current_squad:
-        available_budget = budget_itb + sell_player["price"]
-        candidates = [
-            p for p in players
-            if p["position"] == sell_player["position"]
-            and p["id"] not in current_squad_ids
-            and p["price"] <= available_budget
-        ]
-        for buy_player in sorted(candidates, key=lambda x: -x["projected_points"])[:5]:
-            gain = buy_player["projected_points"] - sell_player["projected_points"]
+        candidates = _buy_candidates(
+            sell_player, players, current_squad_ids, player_map, budget_itb)
+        for buy_player in sorted(candidates, key=lambda x: -x["projected_horizon"])[:5]:
+            gain = _gain(buy_player, sell_player)
             if gain > 0:
                 transfer_suggestions.append({
                     "sell": {**sell_player},
                     "buy": {**buy_player},
                     "points_gain": round(gain, 2),
+                    "gain_over_horizon": round(gain * HORIZON_GWS, 2),
                     "cost_diff": round(buy_player["price"] - sell_player["price"], 1)
                 })
 
     transfer_suggestions.sort(key=lambda x: -x["points_gain"])
-    return transfer_suggestions[:10]
+
+    # One suggestion per outgoing player and per incoming player, otherwise the
+    # list is the same premium striker repeated against six different sells.
+    seen_sell, seen_buy, deduped = set(), set(), []
+    for s in transfer_suggestions:
+        if s["sell"]["id"] in seen_sell or s["buy"]["id"] in seen_buy:
+            continue
+        seen_sell.add(s["sell"]["id"])
+        seen_buy.add(s["buy"]["id"])
+        deduped.append(s)
+    return deduped[:10]
 
 
 def suggest_captain(current_squad_ids: list, db_path: str = None):
@@ -429,16 +531,22 @@ def suggest_captain(current_squad_ids: list, db_path: str = None):
         if not p:
             continue
         fdr = fdr_map.get(p["team_id"], 3)
-        fixture_multiplier = {1: 1.3, 2: 1.15, 3: 1.0, 4: 0.85, 5: 0.7}.get(fdr, 1.0)
-        adjusted_score = p["projected_points"] * fixture_multiplier
+        # projected_points is ALREADY fixture-adjusted by compute_projections.
+        # This used to multiply by a second, steeper FDR curve, so an easy
+        # fixture was rewarded 1.20 x 1.30 = 1.56x and a hard one punished
+        # 0.80 x 0.70 = 0.56x — a 2.8x spread that buried player quality under
+        # fixture difficulty. The armband should go to the highest expected
+        # score, which is the projection itself.
+        captain_score = p["projected_points"]
         captain_options.append({
             **p, "fdr": fdr,
             "fixture": fixture_map.get(p["team_id"], "Unknown"),
-            "fixture_multiplier": fixture_multiplier,
-            "captain_score": round(adjusted_score, 2),
-            "projected_captain_points": round(adjusted_score * 2, 2)
+            "captain_score": round(captain_score, 2),
+            "projected_captain_points": round(captain_score * 2, 2)
         })
 
+    # Unavailable players can't wear the armband.
+    captain_options = [c for c in captain_options if c.get("status") != "u"]
     captain_options.sort(key=lambda x: -x["captain_score"])
     return captain_options
 
@@ -448,65 +556,121 @@ def analyze_hit_worthiness(current_squad_ids: list, budget_itb: float, free_tran
     player_map = {p["id"]: p for p in players}
 
     def get_best_transfers(n):
+        """Greedily pick n transfers, keeping the squad legal as we go."""
         suggestions = []
         temp_squad_ids = list(current_squad_ids)
         temp_budget = budget_itb
-        used = []
+        bought_ids = set()
 
         for _ in range(n):
             best = None
             for sell_player in [player_map[pid] for pid in temp_squad_ids if pid in player_map]:
-                available = temp_budget + sell_player["price"]
-                candidates = [
-                    p for p in players
-                    if p["position"] == sell_player["position"]
-                    and p["id"] not in temp_squad_ids
-                    and p["price"] <= available
-                    and p["id"] not in [u["buy"]["id"] for u in used]
-                ]
-                for buy_player in sorted(candidates, key=lambda x: -x["projected_points"])[:5]:
-                    gain = buy_player["projected_points"] - sell_player["projected_points"]
+                candidates = _buy_candidates(
+                    sell_player, players, temp_squad_ids, player_map, temp_budget,
+                    exclude_ids=bought_ids)
+                for buy_player in sorted(candidates, key=lambda x: -x["projected_horizon"])[:5]:
+                    gain = _gain(buy_player, sell_player)
                     if gain > 0 and (best is None or gain > best["points_gain"]):
                         best = {
                             "sell": sell_player, "buy": buy_player,
                             "points_gain": round(gain, 2),
+                            "gain_over_horizon": round(gain * HORIZON_GWS, 2),
                             "cost_diff": round(buy_player["price"] - sell_player["price"], 1)
                         }
-            if best:
-                suggestions.append(best)
-                used.append(best)
-                temp_squad_ids = [best["buy"]["id"] if pid == best["sell"]["id"] else pid for pid in temp_squad_ids]
-                temp_budget -= best["cost_diff"]
+            if not best:
+                break
+            suggestions.append(best)
+            bought_ids.add(best["buy"]["id"])
+            temp_squad_ids = [best["buy"]["id"] if pid == best["sell"]["id"] else pid
+                              for pid in temp_squad_ids]
+            temp_budget -= best["cost_diff"]
 
         return suggestions
 
     one_transfer = get_best_transfers(1)
     two_transfers = get_best_transfers(2)
-    gain_1 = sum(t["points_gain"] for t in one_transfer)
-    gain_2 = sum(t["points_gain"] for t in two_transfers)
+
+    # Gains are points per gameweek; the hit is a one-off 4. Comparing a single
+    # gameweek's gain against the full 4 made hits look almost never worth it,
+    # which is wrong: you keep the better player for the whole horizon. Totalling
+    # both sides over the horizon is the honest comparison.
+    gain_1 = sum(t["points_gain"] for t in one_transfer) * HORIZON_GWS
+    gain_2 = sum(t["points_gain"] for t in two_transfers) * HORIZON_GWS
     gain_2_after_hit = gain_2 - 4
+    take_hit = free_transfers < 2 and gain_2_after_hit > gain_1 and gain_2_after_hit > 0
 
     if free_transfers >= 2:
-        recommendation = "You have 2 free transfers — make both without penalty."
-    elif gain_2_after_hit > gain_1 and gain_2_after_hit > 2:
-        recommendation = f"✅ Take the hit. 2 transfers gains {round(gain_2, 2)} pts, minus 4 for the hit = {round(gain_2_after_hit, 2)} pts net. Worth it."
+        recommendation = (
+            f"You have {free_transfers} free transfers — make both without penalty. "
+            f"Expected gain {round(gain_2, 1)} pts over the next {HORIZON_GWS} gameweeks."
+        )
+    elif take_hit:
+        recommendation = (
+            f"✅ Take the hit. Two transfers gain {round(gain_2, 1)} pts over {HORIZON_GWS} "
+            f"gameweeks, minus 4 for the hit = {round(gain_2_after_hit, 1)} net, versus "
+            f"{round(gain_1, 1)} for one free move."
+        )
     elif gain_1 > 0:
-        recommendation = f"❌ Don't take the hit. Best 1 transfer gains {round(gain_1, 2)} pts. Hit would cost more than it gains."
+        recommendation = (
+            f"❌ Don't take the hit. One free transfer gains {round(gain_1, 1)} pts over "
+            f"{HORIZON_GWS} gameweeks; the second move plus the −4 nets "
+            f"{round(gain_2_after_hit, 1)}, which is worse."
+        )
     else:
-        recommendation = "No beneficial transfers found this week. Hold."
+        recommendation = "No beneficial transfers found. Hold and bank the transfer."
 
     return {
         "free_transfers": free_transfers,
+        "horizon_gws": HORIZON_GWS,
         "best_1_transfer": one_transfer, "best_2_transfers": two_transfers,
         "gain_1_transfer": round(gain_1, 2), "gain_2_transfers": round(gain_2, 2),
         "gain_2_after_hit": round(gain_2_after_hit, 2),
-        "take_hit": gain_2_after_hit > gain_1 and free_transfers < 2,
+        "take_hit": take_hit,
         "recommendation": recommendation,
         "multi_week_plan": [
             {"week": "This week", "action": f"Make {min(free_transfers, len(one_transfer))} free transfer(s)" if gain_1 > 0 else "Hold", "transfers": one_transfer[:free_transfers]},
             {"week": "Next week", "action": "Bank the free transfer for a 2-transfer week" if gain_1 < 2 else "Use banked transfer on best available", "transfers": []}
         ]
     }
+
+
+def _best_legal_eleven(squad: list) -> tuple[list, list]:
+    """Highest-projecting XI that FPL would actually let you field: one keeper,
+    3-5 DEF, 2-5 MID, 1-3 FWD. Taking the top 10 outfielders by projection (the
+    previous approach) can return illegal shapes like two defenders, which
+    inflates the starting XI and understates the bench."""
+    by_pos = {
+        pos: sorted([p for p in squad if p["position"] == pos],
+                    key=lambda x: -x["projected_points"])
+        for pos in ("GKP", "DEF", "MID", "FWD")
+    }
+    if not by_pos["GKP"]:
+        ordered = sorted(squad, key=lambda x: -x["projected_points"])
+        return ordered[:11], ordered[11:]
+
+    starters = [by_pos["GKP"][0]]
+    # Start from the minimum legal shape, then fill the remaining slots with
+    # whoever projects highest and still fits under the per-position cap.
+    for pos, minimum in FORMATION_MIN.items():
+        starters.extend(by_pos[pos][:minimum])
+
+    used = {p["id"] for p in starters}
+    counts = {pos: min(len(by_pos[pos]), FORMATION_MIN[pos]) for pos in FORMATION_MIN}
+    remaining = sorted(
+        [p for p in squad if p["id"] not in used and p["position"] != "GKP"],
+        key=lambda x: -x["projected_points"],
+    )
+    for p in remaining:
+        if len(starters) >= 11:
+            break
+        pos = p["position"]
+        if counts.get(pos, 0) < FORMATION_MAX.get(pos, 5):
+            starters.append(p)
+            counts[pos] = counts.get(pos, 0) + 1
+
+    starter_ids = {p["id"] for p in starters}
+    bench = [p for p in squad if p["id"] not in starter_ids]
+    return starters, bench
 
 
 def analyze_chips(current_squad_ids: list, db_path: str = None):
@@ -539,10 +703,7 @@ def analyze_chips(current_squad_ids: list, db_path: str = None):
     if not squad:
         return {"error": "Squad not found"}
 
-    gkps = sorted([p for p in squad if p["position"] == "GKP"], key=lambda x: -x["projected_points"])
-    outfield = sorted([p for p in squad if p["position"] != "GKP"], key=lambda x: -x["projected_points"])
-    starting_11 = [gkps[0]] + outfield[:10] if gkps else outfield[:11]
-    bench = [gkps[1]] + outfield[10:] if len(gkps) > 1 else outfield[10:]
+    starting_11, bench = _best_legal_eleven(squad)
 
     avg_starting_pts = sum(p["projected_points"] for p in starting_11) / len(starting_11) if starting_11 else 0
     avg_bench_pts = sum(p["projected_points"] for p in bench) / len(bench) if bench else 0
@@ -555,19 +716,29 @@ def analyze_chips(current_squad_ids: list, db_path: str = None):
     top_captain = captain_options[0] if captain_options else None
     tc_score = top_captain["captain_score"] if top_captain else 0
     tc_fdr = top_captain.get("fdr", 3) if top_captain else 3
-    tc_recommended = tc_score >= 8 and tc_fdr <= 2
-
+    # Triple Captain buys you ONE extra copy of the captain's score, so the bar
+    # is "is that extra copy worth a chip". Recalibrated because captain_score no
+    # longer carries the doubled fixture multiplier it used to.
+    tc_recommended = tc_score >= 7.0 and tc_fdr <= 3
     tc_reason = (
-        f"✅ {top_captain['web_name']} is your standout captain with a score of {round(tc_score,1)} and faces an {'easy' if tc_fdr <= 2 else 'medium'} fixture (FDR {tc_fdr}). Projected TC points: {round(tc_score * 3, 1)}."
+        f"✅ {top_captain['web_name']} projects {round(tc_score,1)} pts against an "
+        f"{'easy' if tc_fdr <= 2 else 'even'} fixture (FDR {tc_fdr}). Tripling adds roughly "
+        f"{round(tc_score,1)} pts over a normal captain — projected TC total {round(tc_score * 3, 1)}."
         if tc_recommended else
-        f"❌ No standout TC opportunity. Your best captain ({top_captain['web_name'] if top_captain else 'N/A'}) has a score of {round(tc_score,1)} — not exceptional enough to triple up."
+        f"❌ No standout TC opportunity. Your best captain "
+        f"({top_captain['web_name'] if top_captain else 'N/A'}) projects {round(tc_score,1)} pts, "
+        f"so the extra copy is worth about the same — not enough to burn the chip."
     )
 
-    bb_recommended = avg_bench_pts >= 4.5
+    bench_total = sum(p["projected_points"] for p in bench)
+    bb_recommended = avg_bench_pts >= 4.0
     bb_reason = (
-        f"✅ Your bench averages {round(avg_bench_pts,1)} projected pts — strong enough to boost. Bench players: {', '.join(p['web_name'] for p in bench)}."
+        f"✅ Your bench projects {round(bench_total,1)} pts total "
+        f"({round(avg_bench_pts,1)} each) — worth boosting. Bench: "
+        f"{', '.join(p['web_name'] for p in bench)}."
         if bb_recommended else
-        f"❌ Your bench averages only {round(avg_bench_pts,1)} projected pts. Not worth activating Bench Boost with this bench quality."
+        f"❌ Your bench projects only {round(bench_total,1)} pts total "
+        f"({round(avg_bench_pts,1)} each). Hold the chip for a stronger bench or a double gameweek."
     )
 
     wc_recommended = avg_starting_pts < 5.0 and avg_fdr_5gw <= 2.8
