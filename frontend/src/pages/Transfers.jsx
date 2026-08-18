@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react'
-import { getTeamSquad, getTransferSuggestions, getHitAnalysis } from '../api'
+import { getTransferSuggestions, getHitAnalysis } from '../api'
 import pitchImg from '../assets/fpl_pitch.jpg'
 import { PHOTO } from '../playerPhoto'
+import SquadSource from '../components/SquadSource'
 
 
 function XGStats({ player }) {
@@ -109,17 +110,6 @@ export default function Transfers({ sharedTeamId, setSharedTeamId, sharedSquadDa
     setStep(2)
   }
 
-  async function fetchSquad() {
-    if (!sharedTeamId) return
-    setLoading(true); setError('')
-    try {
-      const res = await getTeamSquad(sharedTeamId)
-      if (res.data.error) { setError(res.data.error); setLoading(false); return }
-      setSharedSquadData(res.data); applySquadData(res.data)
-    } catch { setError('Failed to fetch team. Make sure your team ID is correct.') }
-    setLoading(false)
-  }
-
   async function fetchSuggestions() {
     setLoading(true); setError('')
     try {
@@ -147,18 +137,13 @@ export default function Transfers({ sharedTeamId, setSharedTeamId, sharedSquadDa
         <p className="page-sub">Import your squad for data-driven transfer suggestions ranked by projected points gain.</p>
       </div>
 
-      <div className="import-panel">
-        <h3>Enter your FPL Team ID</h3>
-        <p>Find it in your team URL: fantasy.premierleague.com/entry/<strong style={{ color: 'var(--accent)' }}>YOUR_ID</strong>/event/…</p>
-        <div className="import-row">
-          <input className="field" placeholder="e.g. 1234567" value={sharedTeamId} onChange={e => setSharedTeamId(e.target.value)} style={{ width: '170px' }} />
-          <button className="btn-3d" onClick={fetchSquad} disabled={loading}>
-            <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="M12 4v11M7 10l5 5 5-5M5 20h14" /></svg>
-            {loading ? 'Loading…' : 'Import Squad'}
-          </button>
-        </div>
-        {error && <p style={{ color: 'var(--danger)', marginTop: '12px', fontSize: '13px' }}>{error}</p>}
-      </div>
+      <SquadSource
+        sharedTeamId={sharedTeamId}
+        setSharedTeamId={setSharedTeamId}
+        actionLabel="Import Squad"
+        onSquad={data => { setSharedSquadData(data); applySquadData(data) }}
+      />
+      {error && <p style={{ color: 'var(--danger)', marginTop: '12px', fontSize: '13px' }}>{error}</p>}
 
       {step >= 2 && squad.length > 0 && (
         <div className="panel panel-pad" style={{ marginBottom: '18px' }}>

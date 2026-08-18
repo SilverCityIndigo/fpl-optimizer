@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
-import { getTeamSquad, getCaptainPick } from '../api'
+import { getCaptainPick } from '../api'
 import { PHOTO } from '../playerPhoto'
+import SquadSource from '../components/SquadSource'
 
 const FDR_COLORS = { 1: 'var(--accent)', 2: 'var(--info)', 3: 'var(--gold)', 4: '#e0872e', 5: 'var(--danger)' }
 const FDR_LABELS = { 1: 'Very Easy', 2: 'Easy', 3: 'Medium', 4: 'Hard', 5: 'Very Hard' }
@@ -24,18 +25,6 @@ export default function Captain({ sharedTeamId, setSharedTeamId, sharedSquadData
     setLoading(false)
   }
 
-  async function fetchSquad() {
-    if (!sharedTeamId) return
-    setLoading(true); setError('')
-    try {
-      const res = await getTeamSquad(sharedTeamId)
-      if (res.data.error) { setError(res.data.error); setLoading(false); return }
-      setSharedSquadData(res.data)
-      await loadCaptainFromSquad(res.data)
-    } catch { setError('Failed to fetch team. Make sure your team ID is correct.') }
-    setLoading(false)
-  }
-
   return (
     <div>
       <div className="page-head">
@@ -43,18 +32,14 @@ export default function Captain({ sharedTeamId, setSharedTeamId, sharedSquadData
         <p className="page-sub">Import your squad for fixture-adjusted captain recommendations for the next gameweek.</p>
       </div>
 
-      <div className="import-panel">
-        <h3>Enter your FPL Team ID</h3>
-        <p>Find it in your team URL: fantasy.premierleague.com/entry/<strong style={{ color: 'var(--accent)' }}>YOUR_ID</strong>/event/…</p>
-        <div className="import-row">
-          <input className="field" placeholder="e.g. 1234567" value={sharedTeamId} onChange={e => setSharedTeamId(e.target.value)} style={{ width: '170px' }} />
-          <button className="btn-3d" onClick={fetchSquad} disabled={loading}>
-            <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="M13 2 4.5 13H11l-1 9 8.5-11H12z" /></svg>
-            {loading ? 'Analyzing…' : 'Get Captain Picks'}
-          </button>
-        </div>
-        {error && <p style={{ color: 'var(--danger)', marginTop: '12px', fontSize: '13px' }}>{error}</p>}
-      </div>
+      <SquadSource
+        sharedTeamId={sharedTeamId}
+        setSharedTeamId={setSharedTeamId}
+        actionLabel="Get Captain Picks"
+        onSquad={async data => { setSharedSquadData(data); await loadCaptainFromSquad(data) }}
+      />
+      {error && <p style={{ color: 'var(--danger)', marginTop: '12px', fontSize: '13px' }}>{error}</p>}
+      {loading && <p className="hint">Ranking your captain options…</p>}
 
       {step === 3 && picks.length > 0 && (
         <div>
