@@ -465,6 +465,128 @@ def _gain(buy_player, sell_player) -> float:
     return buy_player["projected_horizon"] - sell_player["projected_horizon"]
 
 
+# --------------------------------------------------------------------------- #
+# Pre-season squad sources                                                     #
+#                                                                              #
+# Before the GW1 deadline the FPL API will not serve anyone's picks (the        #
+# entry/{id}/event/{gw}/picks/ endpoint 404s until the deadline locks), so the  #
+# team-ID import cannot work. These two entry points produce the same payload   #
+# shape as api.players.get_team_squad, which lets the transfer, captain and     #
+# chip pages run off a solver-built or hand-picked squad in the meantime.       #
+# --------------------------------------------------------------------------- #
+
+SQUAD_SHAPE = {"GKP": 2, "DEF": 5, "MID": 5, "FWD": 3}
+SQUAD_BUDGET = 100.0
+MAX_PER_CLUB = 3
+
+
+def _next_fixture_labels(c) -> tuple[dict, int | None]:
+    """Opponent labels for the upcoming gameweek, e.g. {team_id: 'ARS (H)'}.
+    Joined into a single string when a team has two fixtures that week."""
+    c.execute("SELECT id FROM gameweeks WHERE is_next = 1 LIMIT 1")
+    row = c.fetchone()
+    next_gw = row[0] if row else None
+    c.execute("""
+        SELECT f.team_h, f.team_a, th.short_name, ta.short_name
+        FROM fixtures f
+        JOIN teams th ON f.team_h = th.id
+        JOIN teams ta ON f.team_a = ta.id
+        WHERE f.gameweek = (SELECT id FROM gameweeks WHERE is_next = 1 LIMIT 1)
+    """)
+    parts: dict[int, list] = {}
+    for th_id, ta_id, th_name, ta_name in c.fetchall():
+        parts.setdefault(th_id, []).append(f"{ta_name} (H)")
+        parts.setdefault(ta_id, []).append(f"{th_name} (A)")
+    return {k: ", ".join(v) for k, v in parts.items()}, next_gw
+
+
+def _squad_payload(squad: list, bank: float, source: str) -> dict:
+    """Shape a set of 15 players like the team-ID import does, so every consumer
+    downstream (pitch view, captain, chips) works without special-casing."""
+    conn = get_db()
+    c = conn.cursor()
+    fixture_labels, next_gw = _next_fixture_labels(c)
+    conn.close()
+
+    starters, bench = _best_legal_eleven(squad)
+    order = {"GKP": 0, "DEF": 1, "MID": 2, "FWD": 3}
+    starters.sort(key=lambda p: (order.get(p["position"], 9), -p["projected_points"]))
+    bench.sort(key=lambda p: (order.get(p["position"], 9) != 0,
+                              -p["projected_points"]))
+
+    picks = []
+    for i, p in enumerate(starters, start=1):
+        picks.append({"element": p["id"], "position": i, "is_sub": False})
+    for i, p in enumerate(bench, start=len(starters) + 1):
+        picks.append({"element": p["id"], "position": i, "is_sub": True})
+
+    players = []
+    for p in starters + bench:
+        players.append({
+            **p,
+            "projected_points": round(p["projected_points"], 1),
+            "next_fixture": fixture_labels.get(p["team_id"], "TBD"),
+        })
+
+    return {
+        "players": players,
+        "player_ids": [p["id"] for p in players],
+        "picks": picks,
+        "bank": round(bank, 1),
+        "transfers_left": 1,
+        "chips_available": {"wildcard": True, "freehit": True,
+                            "bboost": True, "3xc": True},
+        "next_gw": next_gw,
+        "squad_source": source,
+        "total_cost": round(sum(p["price"] for p in players), 1),
+        "projected_points": round(sum(p["projected_points"] for p in starters), 1),
+    }
+
+
+def build_draft_squad(budget: float = SQUAD_BUDGET) -> dict:
+    """Solver-built starting squad — the pre-season 'pick me a team' path."""
+    result = optimize_squad(budget=budget)
+    squad = result.get("squad") or []
+    if len(squad) < 15:
+        return {"error": "Not enough projected players available to build a squad yet."}
+    return _squad_payload(squad, bank=result["budget_remaining"], source="draft")
+
+
+def squad_from_ids(player_ids: list, budget: float = SQUAD_BUDGET) -> dict:
+    """Validate a hand-picked 15 and return it in the standard payload shape.
+    Validation lives here rather than in the UI so the rules can't drift."""
+    players = get_players_for_optimization()
+    player_map = {p["id"]: p for p in players}
+
+    unique_ids = list(dict.fromkeys(player_ids))
+    squad = [player_map[pid] for pid in unique_ids if pid in player_map]
+    missing = [pid for pid in unique_ids if pid not in player_map]
+    if missing:
+        return {"error": f"{len(missing)} selected player(s) have no projection yet."}
+
+    counts: dict[str, int] = {}
+    for p in squad:
+        counts[p["position"]] = counts.get(p["position"], 0) + 1
+    wrong = [f"{need} {pos}" for pos, need in SQUAD_SHAPE.items()
+             if counts.get(pos, 0) != need]
+    if wrong:
+        have = ", ".join(f"{counts.get(pos, 0)} {pos}" for pos in SQUAD_SHAPE)
+        return {"error": f"A squad needs {', '.join(wrong)}. You have {have}."}
+
+    club_counts: dict[int, int] = {}
+    for p in squad:
+        club_counts[p["team_id"]] = club_counts.get(p["team_id"], 0) + 1
+    over = [p["team_name"] for p in squad if club_counts[p["team_id"]] > MAX_PER_CLUB]
+    if over:
+        return {"error": f"Max {MAX_PER_CLUB} players from one club — too many from {sorted(set(over))[0]}."}
+
+    cost = sum(p["price"] for p in squad)
+    if cost > budget + 1e-9:
+        return {"error": f"Squad costs £{cost:.1f}m, which is £{cost - budget:.1f}m over the £{budget:.0f}m budget."}
+
+    return _squad_payload(squad, bank=budget - cost, source="manual")
+
+
 def suggest_transfers(current_squad_ids: list, budget_itb: float, free_transfers: int = 1, db_path: str = None):
     players = get_players_for_optimization()
     player_map = {p["id"]: p for p in players}

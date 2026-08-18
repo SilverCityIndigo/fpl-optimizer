@@ -38,6 +38,14 @@ export const getCaptainPick = (squadIds) =>
 
 export const getPriceChanges = () => api.get('/api/players/price-changes')
 
+// Pre-season squad sources. The team-ID import cannot work before the GW1
+// deadline (FPL does not publish picks until it locks), so these two stand in.
+export const getDraftSquad = (budget = 100) =>
+  api.get('/api/optimizer/draft-squad', { params: { budget } })
+
+export const getSquadFromIds = (playerIds, budget = 100) =>
+  api.post('/api/optimizer/squad-from-ids', { player_ids: playerIds, budget })
+
 export const getChipAdvice = (squadIds) =>
   api.post('/api/optimizer/chips', { current_squad_ids: squadIds })
 

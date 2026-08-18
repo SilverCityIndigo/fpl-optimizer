@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
-import { getTeamSquad, getChipAdvice } from '../api'
+import { getChipAdvice } from '../api'
+import SquadSource from '../components/SquadSource'
 
 const CHIP_CONFIG = {
   triple_captain: { label: 'Triple Captain', color: 'var(--gold)',   apiKey: '3xc'      },
@@ -28,18 +29,6 @@ export default function ChipAdvisor({ sharedTeamId, setSharedTeamId, sharedSquad
     setLoading(false)
   }
 
-  async function fetchAdvice() {
-    if (!sharedTeamId) return
-    setLoading(true); setError('')
-    try {
-      const res = await getTeamSquad(sharedTeamId)
-      if (res.data.error) { setError(res.data.error); setLoading(false); return }
-      setSharedSquadData(res.data)
-      await loadChipsFromSquad(res.data)
-    } catch { setError('Failed to fetch advice. Check your team ID.') }
-    setLoading(false)
-  }
-
   const summary = advice?.squad_summary
   const chips = advice?.chips
 
@@ -50,18 +39,14 @@ export default function ChipAdvisor({ sharedTeamId, setSharedTeamId, sharedSquad
         <p className="page-sub">Import your squad for data-driven advice on when to play each chip.</p>
       </div>
 
-      <div className="import-panel">
-        <h3>Enter your FPL Team ID</h3>
-        <p>Find it in your team URL: fantasy.premierleague.com/entry/<strong style={{ color: 'var(--accent)' }}>YOUR_ID</strong>/event/…</p>
-        <div className="import-row">
-          <input className="field" placeholder="e.g. 1234567" value={sharedTeamId} onChange={e => setSharedTeamId(e.target.value)} style={{ width: '170px' }} />
-          <button className="btn-3d" onClick={fetchAdvice} disabled={loading}>
-            <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="8.4" /><circle cx="12" cy="12" r="3.2" /></svg>
-            {loading ? 'Analyzing…' : 'Analyze Chips'}
-          </button>
-        </div>
-        {error && <p style={{ color: 'var(--danger)', marginTop: '12px', fontSize: '13px' }}>{error}</p>}
-      </div>
+      <SquadSource
+        sharedTeamId={sharedTeamId}
+        setSharedTeamId={setSharedTeamId}
+        actionLabel="Analyze Chips"
+        onSquad={async data => { setSharedSquadData(data); await loadChipsFromSquad(data) }}
+      />
+      {error && <p style={{ color: 'var(--danger)', marginTop: '12px', fontSize: '13px' }}>{error}</p>}
+      {loading && <p className="hint">Working through your chip options…</p>}
 
       {advice && summary && chips && (
         <>
