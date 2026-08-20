@@ -34,6 +34,11 @@ GW_LOOKBACK = 6
 # Current-season minutes at which we fully trust live numbers over the seed.
 BLEND_FULL_MINUTES = 450.0
 
+# Minutes of evidence at which an observed per-90 rate outweighs the population
+# prior 50/50. See _shrink for why this is the model's most important knob.
+SHRINK_MINUTES = 600.0
+GAMES_PER_SEASON = 38
+
 # How many gameweeks ahead the transfer/hit maths looks. A transfer is a
 # multi-week commitment, so ranking it on one fixture is mostly noise.
 HORIZON_GWS = 5
@@ -73,19 +78,60 @@ def _position_xg_signal(position: str, xg90: float, xa90: float) -> float:
     return 0.0  # GKP handled separately
 
 
-def _preseason_minutes_factor(sample_minutes: float) -> float:
-    """Rough starter-likelihood from a full-season minutes tally, used before
-    the player has current-season history to average."""
-    m = float(sample_minutes or 0)
-    if m >= 2200:
-        return 1.0
-    if m >= 1200:
-        return 0.8
-    if m >= 500:
-        return 0.6
-    if m > 0:
-        return 0.4
-    return 0.3
+def _shrink(rate: float, sample_minutes: float, prior: float,
+            k: float = SHRINK_MINUTES) -> float:
+    """Regress a per-90 rate toward a population prior, weighted by sample size.
+
+    This matters more than any other single correction in the model. Measured on
+    the live bootstrap: players with 900+ minutes post a median 4.12 points per
+    90, while players under 300 minutes post 6.55. Fringe players do not score
+    faster than starters — they just have small, noisy samples, and a raw per-90
+    rate treats that noise as skill. At k minutes of evidence the observed rate
+    gets half the weight; below that the prior dominates."""
+    m = max(0.0, float(sample_minutes or 0))
+    return (float(rate or 0) * m + prior * k) / (m + k)
+
+
+def _expected_minutes(starts: float, minutes: float, games: float,
+                      chance_of_playing) -> float:
+    """Minutes we expect in the next match, 0-90.
+
+    Replaces a five-bucket lookup on season minutes whose floor was 0.3 — so a
+    player who had never started still carried 30% of a full projection. Starts
+    are weighted above raw minutes because starting is what separates a squad
+    player from a rotation option: a winger with 118 minutes and zero starts
+    across a season is not a 0.3 of anything.
+
+    Both inputs are seasonal totals: current-season once the season is under way,
+    last-season before it starts."""
+    games = max(1.0, float(games or 1))
+    starts_rate = min(1.0, max(0.0, float(starts or 0)) / games)
+    minutes_rate = min(1.0, max(0.0, float(minutes or 0)) / (games * 90.0))
+
+    if starts_rate <= 0 and minutes_rate > 0:
+        # No starts data (players seeded from a foreign league have minutes but
+        # no PL starts) — trust minutes alone rather than assuming a benchwarmer.
+        role = minutes_rate
+    else:
+        role = 0.65 * starts_rate + 0.35 * minutes_rate
+
+    expected = 90.0 * role
+    if chance_of_playing is not None and chance_of_playing < 100:
+        expected *= max(0.0, float(chance_of_playing)) / 100.0
+    return min(90.0, max(0.0, expected))
+
+
+def minutes_risk_label(expected_minutes: float) -> str:
+    """Plain-language bucket for the UI, so a squad spot spent on a non-starter
+    is visible instead of hidden inside a points number."""
+    m = float(expected_minutes or 0)
+    if m >= 70:
+        return "Nailed"
+    if m >= 45:
+        return "Rotation"
+    if m >= 20:
+        return "Fringe"
+    return "Bench"
 
 
 def compute_projections(gw_lookback: int = GW_LOOKBACK) -> list[dict]:
@@ -108,7 +154,8 @@ def compute_projections(gw_lookback: int = GW_LOOKBACK) -> list[dict]:
             COALESCE(p.xg_per90, 0.0), COALESCE(p.xa_per90, 0.0),
             COALESCE(p.seed_xg90, 0.0), COALESCE(p.seed_xa90, 0.0),
             COALESCE(p.seed_ppg, 0.0), COALESCE(p.last_season_minutes, 0),
-            COALESCE(p.xg_source, '')
+            COALESCE(p.xg_source, ''),
+            COALESCE(p.starts, 0), COALESCE(p.last_season_starts, 0)
         FROM players p
         JOIN teams t ON p.team_id = t.id
         WHERE p.status != 'u'
@@ -120,14 +167,36 @@ def compute_projections(gw_lookback: int = GW_LOOKBACK) -> list[dict]:
             "total_points", "points_per_game", "form", "minutes", "status",
             "chance_of_playing", "team_name", "xg_per90", "xa_per90",
             "seed_xg90", "seed_xa90", "seed_ppg", "last_season_minutes",
-            "xg_source"]
+            "xg_source", "starts", "last_season_starts"]
     players = [dict(zip(cols, row)) for row in c.fetchall()]
     for p in players:
         for f in ["price", "points_per_game", "form", "xg_per90", "xa_per90",
                   "seed_xg90", "seed_xa90", "seed_ppg"]:
             p[f] = float(p[f] or 0)
-        p["minutes"] = int(p["minutes"] or 0)
-        p["last_season_minutes"] = int(p["last_season_minutes"] or 0)
+        for f in ["minutes", "last_season_minutes", "starts", "last_season_starts"]:
+            p[f] = int(p[f] or 0)
+
+    def _sample_minutes(p) -> int:
+        """Minutes the player's rates are measured over."""
+        return p["minutes"] if started else p["last_season_minutes"]
+
+    def _points_per90(p) -> float:
+        m = _sample_minutes(p)
+        if m <= 0:
+            return 0.0
+        if not started:
+            return p["seed_ppg"]
+        return float(p["total_points"] or 0) / (m / 90.0)
+
+    # Shrinkage priors measured from this season's own data rather than
+    # hardcoded, so they stay calibrated as the season develops. Only players
+    # with a substantial sample get to define what "average" looks like.
+    def _median_per90(position: str) -> float:
+        vals = sorted(_points_per90(p) for p in players
+                      if p["position"] == position and _sample_minutes(p) >= 900)
+        return vals[len(vals) // 2] if vals else 3.5
+
+    ppg_prior = {pos: _median_per90(pos) for pos in ("GKP", "DEF", "MID", "FWD")}
 
     # --- Recent history for ALL players in ONE query ------------------------ #
     c.execute("""
@@ -229,7 +298,31 @@ def compute_projections(gw_lookback: int = GW_LOOKBACK) -> list[dict]:
         eff_xa90 = w * p["xa_per90"] + (1 - w) * p["seed_xa90"]
         sample_min = cur_min if started else p["last_season_minutes"]
 
-        # Form decay from recent points; fall back to seed/ppg pre-season.
+        # --- Expected minutes ------------------------------------------------ #
+        # Derived from starts and minutes over the relevant season. This is the
+        # gate on everything below: a per-90 rate is worth nothing if the player
+        # does not get on the pitch.
+        if started:
+            season_starts, season_minutes = p["starts"], p["minutes"]
+            games = max(1, len(history)) if history else GAMES_PER_SEASON
+        else:
+            season_starts = p["last_season_starts"] or p["starts"]
+            season_minutes = p["last_season_minutes"]
+            games = GAMES_PER_SEASON
+
+        exp_minutes = _expected_minutes(
+            season_starts, season_minutes, games, p["chance_of_playing"])
+        # Recent minutes are the better guide once the season is running: they
+        # catch a player who has just won or lost his place.
+        if history:
+            recent_avg_minutes = sum(h[1] for h in history) / len(history)
+            exp_minutes = 0.4 * exp_minutes + 0.6 * min(90.0, recent_avg_minutes)
+            if p["chance_of_playing"] is not None and p["chance_of_playing"] < 100:
+                exp_minutes *= max(0.0, p["chance_of_playing"]) / 100.0
+        mins_scale = exp_minutes / 90.0
+
+        # --- Scoring rate per 90, regressed for sample size ------------------ #
+        prior = ppg_prior.get(position, 3.5)
         if history:
             weights = [0.9 ** i for i in range(len(history))]
             decay_score = sum(h[0] * wt for h, wt in zip(history, weights)) / sum(weights)
@@ -237,28 +330,40 @@ def compute_projections(gw_lookback: int = GW_LOOKBACK) -> list[dict]:
             avg_bonus = sum(h[2] for h in history) / len(history)
             defcon_rate_def = sum(1 for h in history if h[3] >= BPS_DEFCON_THRESHOLD["DEF"]) / len(history)
             defcon_rate_mid = sum(1 for h in history if h[3] >= BPS_DEFCON_THRESHOLD["MID"]) / len(history)
-            mins_factor = min(1.0, max(0.3, avg_minutes / 90.0))
+            # decay_score is points per gameweek played, so convert to a per-90
+            # rate before shrinking, then re-apply expected minutes below. The
+            # old code multiplied the per-gameweek figure by a minutes factor,
+            # discounting minutes twice.
+            recent_minutes = sum(h[1] for h in history)
+            if avg_minutes >= 20:
+                rate_per90 = decay_score * 90.0 / avg_minutes
+            else:
+                rate_per90 = prior
+            rate_per90 = _shrink(rate_per90, recent_minutes, prior)
         else:
-            decay_score = p["seed_ppg"] if p["seed_ppg"] > 0 else (p["points_per_game"] or 2.0)
             avg_bonus = 0.0
             defcon_rate_def = defcon_rate_mid = 0.0
-            mins_factor = _preseason_minutes_factor(sample_min)
+            raw = p["seed_ppg"] if p["seed_ppg"] > 0 else (p["points_per_game"] or prior)
+            rate_per90 = _shrink(raw, season_minutes, prior)
 
-        decay_score *= mins_factor
-
-        # Underlying-stats blend.
+        # --- Underlying-stats blend (also a per-90 rate) --------------------- #
         if position == "GKP":
-            blended = decay_score
+            blended_per90 = rate_per90
         else:
             xg_signal = _position_xg_signal(position, eff_xg90, eff_xa90)
             if xg_signal <= 0:
-                blended = decay_score
+                blended_per90 = rate_per90
             else:
                 form_for_weight = p["form"] if started else 5.0
                 max_w = _form_adaptive_xg_weight(form_for_weight, position)
                 conf = min(1.0, max(0.0, (sample_min - 90) / 900.0))
                 eff_w = max_w * conf
-                blended = (1 - eff_w) * decay_score + eff_w * xg_signal
+                blended_per90 = (1 - eff_w) * rate_per90 + eff_w * xg_signal
+
+        # Both components are per-90 rates, so minutes are applied once, here.
+        # Previously the xG half was never scaled by minutes at all, which is why
+        # fringe players with flattering per-90 numbers reached the starting XI.
+        blended = blended_per90 * mins_scale
 
         defcon_bonus = 0.0
         if position == "DEF":
@@ -267,10 +372,10 @@ def compute_projections(gw_lookback: int = GW_LOOKBACK) -> list[dict]:
             defcon_bonus = defcon_rate_mid * DEFCON_PTS
 
         # Everything above is fixture-independent: a per-match scoring rate.
+        # No availability multiplier here — chance_of_playing is already folded
+        # into expected minutes above, and applying it twice discounted injured
+        # players quadratically.
         base_rate = blended + defcon_bonus + avg_bonus
-        chance = p["chance_of_playing"]
-        if chance is not None and chance < 100:
-            base_rate *= (chance / 100.0)
 
         cs_pts = CS_PTS.get(position, 0)
         by_gw = fixtures_by_team.get(team_id, {})
@@ -311,10 +416,16 @@ def compute_projections(gw_lookback: int = GW_LOOKBACK) -> list[dict]:
 
         p["projected_points"] = round(projected, 3)
         p["projected_horizon"] = round(horizon_per_gw, 3)
+        p["expected_minutes"] = round(exp_minutes, 1)
+        p["start_probability"] = round(
+            min(1.0, max(0.0, season_starts / max(1.0, games)))
+            * (1.0 if p["chance_of_playing"] is None
+               else max(0.0, p["chance_of_playing"]) / 100.0), 3)
+        p["minutes_risk"] = minutes_risk_label(exp_minutes)
         p["cs_probability"] = round(cs_prob_display if cs_pts > 0 else 0.0, 3)
         p["fdr"] = fdr
         p["next_gw_fixtures"] = len(next_fixtures)
-        p["_decay_score"] = round(decay_score, 3)
+        p["_rate_per90"] = round(blended_per90, 3)
         p["_eff_xg90"] = round(eff_xg90, 3)
         p["_eff_xa90"] = round(eff_xa90, 3)
         p["_mins_factor"] = round(mins_factor, 3)
@@ -337,7 +448,8 @@ def get_players_for_optimization(db_path: str = None, gw_lookback: int = GW_LOOK
                t.short_name AS team_name,
                COALESCE(p.xg_per90, 0.0), COALESCE(p.xa_per90, 0.0),
                COALESCE(p.xgi_per90, 0.0), p.projected_points,
-               COALESCE(p.projected_horizon, p.projected_points)
+               COALESCE(p.projected_horizon, p.projected_points),
+               COALESCE(p.expected_minutes, 90.0), p.ep_next
         FROM players p
         JOIN teams t ON p.team_id = t.id
         WHERE p.projected_points IS NOT NULL
@@ -345,7 +457,7 @@ def get_players_for_optimization(db_path: str = None, gw_lookback: int = GW_LOOK
     cols = ["id", "code", "web_name", "team_id", "position", "price",
             "total_points", "points_per_game", "form", "minutes", "status",
             "team_name", "xg_per90", "xa_per90", "xgi_per90", "projected_points",
-            "projected_horizon"]
+            "projected_horizon", "expected_minutes", "ep_next"]
     players = [dict(zip(cols, row)) for row in c.fetchall()]
 
     c.execute("""
@@ -362,10 +474,11 @@ def get_players_for_optimization(db_path: str = None, gw_lookback: int = GW_LOOK
     for p in players:
         for f in ["price", "total_points", "points_per_game", "form", "minutes",
                   "xg_per90", "xa_per90", "xgi_per90", "projected_points",
-                  "projected_horizon"]:
+                  "projected_horizon", "expected_minutes", "ep_next"]:
             if p.get(f) is not None:
                 p[f] = float(p[f])
         p["fdr"] = fdr_map.get(p["team_id"], 3)
+        p["minutes_risk"] = minutes_risk_label(p.get("expected_minutes"))
     return players
 
 

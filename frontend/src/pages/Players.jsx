@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react'
 import { PHOTO } from '../playerPhoto'
 import { usePlayers } from '../usePlayers'
+import { riskMeta } from '../minutesRisk'
 
 const POSITIONS = ['All', 'GKP', 'DEF', 'MID', 'FWD']
 const POS_COLORS = { GKP: 'var(--gold)', DEF: 'var(--info)', MID: 'var(--accent)', FWD: 'var(--danger)' }
@@ -92,6 +93,7 @@ function PlayerCard({ p, ratingCtx, onAnalytics }) {
   const posColor = POS_COLORS[p.position] || 'var(--text-secondary)'
   const injury = availability(p.status)
   const chip = injury || valueRating(p, ratingCtx)
+  const risk = riskMeta(p.expected_minutes)
 
   return (
     <article className="pcard">
@@ -109,6 +111,15 @@ function PlayerCard({ p, ratingCtx, onAnalytics }) {
           <span className="club">{p.team_name}</span>
           <span className="dot" style={{ background: 'var(--text-muted)' }} />
           <span className="class-chip"><span className="dot" style={{ background: chip.color }} />{chip.label}</span>
+          {risk && (
+            <>
+              <span className="dot" style={{ background: 'var(--text-muted)' }} />
+              <span className="class-chip" style={{ color: risk.color }}
+                title={`${risk.blurb} — about ${Math.round(p.expected_minutes)} mins a game`}>
+                {risk.label}
+              </span>
+            </>
+          )}
         </div>
 
         <div className="stat-row">

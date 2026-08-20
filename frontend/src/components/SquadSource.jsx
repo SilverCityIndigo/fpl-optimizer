@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react'
 import { getTeamSquad, getDraftSquad, getSquadFromIds } from '../api'
 import { PHOTO } from '../playerPhoto'
 import { usePlayers } from '../usePlayers'
+import { riskMeta } from '../minutesRisk'
 
 // Three ways to get a squad into the transfer / captain / chip tools.
 //
@@ -114,7 +115,14 @@ function ManualPicker({ onSubmit, busy }) {
             {p.code && <img src={PHOTO(p.code)} alt="" style={{ height: '28px', objectFit: 'contain' }} onError={e => { e.target.style.display = 'none' }} />}
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontWeight: 700, fontSize: '13.5px' }}>{p.web_name}</div>
-              <div className="hint">{p.team_name} · £{p.price}m · {(p.projected_points ?? 0).toFixed(1)} proj</div>
+              <div className="hint">
+                {p.team_name} · £{p.price}m · {(p.projected_points ?? 0).toFixed(1)} proj
+                {riskMeta(p.expected_minutes) && (
+                  <> · <span style={{ color: riskMeta(p.expected_minutes).color, fontWeight: 600 }}>
+                    {riskMeta(p.expected_minutes).label}
+                  </span></>
+                )}
+              </div>
             </div>
             <span style={{ color: 'var(--accent)', fontWeight: 700, fontSize: '18px', lineHeight: 1 }}>+</span>
           </div>
