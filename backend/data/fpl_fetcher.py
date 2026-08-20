@@ -237,6 +237,18 @@ def _ensure_columns(c) -> None:
         ("players", "last_season_points", "INTEGER DEFAULT 0"),
         ("players", "last_season_minutes", "INTEGER DEFAULT 0"),
         ("players", "xg_source", "TEXT DEFAULT ''"),
+        # Minutes/role signals. FPL publishes these and we were throwing them
+        # away, which left the projection unable to tell a nailed starter from a
+        # fringe player with a flattering per-90 rate off a tiny sample.
+        ("players", "starts", "INTEGER DEFAULT 0"),
+        ("players", "last_season_starts", "INTEGER DEFAULT 0"),
+        ("players", "penalties_order", "INTEGER"),
+        # FPL's own next-GW expected points, kept purely as a cross-check.
+        ("players", "ep_next", "DOUBLE PRECISION"),
+        # Outputs of the expected-minutes model, stored so the UI can show why a
+        # player is or isn't worth a squad spot.
+        ("players", "expected_minutes", "DOUBLE PRECISION"),
+        ("players", "start_probability", "DOUBLE PRECISION"),
         ("players", "projected_points", "DOUBLE PRECISION"),
         # Expected points per gameweek across the next few fixtures, used by the
         # transfer and hit maths so a multi-week decision isn't judged on one game.
@@ -307,8 +319,9 @@ def sync_bootstrap():
                 minutes, goals_scored, assists, clean_sheets, bonus,
                 ict_index, news, chance_of_playing_next_round, status,
                 transfers_in_event, transfers_out_event,
-                xg_per90, xa_per90, xgi_per90, updated_at
-            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                xg_per90, xa_per90, xgi_per90,
+                starts, penalties_order, ep_next, updated_at
+            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
             ON CONFLICT(id) DO UPDATE SET
                 code=EXCLUDED.code, web_name=EXCLUDED.web_name,
                 full_name=EXCLUDED.full_name, team_id=EXCLUDED.team_id,
@@ -327,6 +340,9 @@ def sync_bootstrap():
                 transfers_out_event=EXCLUDED.transfers_out_event,
                 xg_per90=EXCLUDED.xg_per90, xa_per90=EXCLUDED.xa_per90,
                 xgi_per90=EXCLUDED.xgi_per90,
+                starts=EXCLUDED.starts,
+                penalties_order=EXCLUDED.penalties_order,
+                ep_next=EXCLUDED.ep_next,
                 updated_at=EXCLUDED.updated_at
         """, (
             p["id"], p.get("code"),
@@ -345,6 +361,8 @@ def sync_bootstrap():
             p["status"],
             p.get("transfers_in_event", 0), p.get("transfers_out_event", 0),
             cur_xg90, cur_xa90, cur_xgi90,
+            int(_f(p.get("starts"))), p.get("penalties_order"),
+            _f(p.get("ep_next")),
             now
         ))
 
@@ -500,17 +518,22 @@ def _seed_from_past(c, player_id: int, position: str, past: dict) -> None:
     returning player. Keyed by id, so no name matching needed."""
     minutes = int(_f(past.get("minutes")))
     points = int(_f(past.get("total_points")))
+    starts = int(_f(past.get("starts")))
     seed_xg90 = _per90(past.get("expected_goals"), minutes)
     seed_xa90 = _per90(past.get("expected_assists"), minutes)
-    # Points per 90 as a per-GW baseline for the form-decay fallback.
+    # Points per 90. NOTE this is a RATE, not a per-gameweek expectation — the
+    # projection is responsible for scaling it by expected minutes, and for
+    # regressing it when the sample is small. Fringe players post the highest
+    # per-90 rates in the league purely through small-sample noise.
     seed_ppg = round(points / max(1.0, minutes / 90.0), 3)
     c.execute("""
         UPDATE players SET
             seed_xg90=%s, seed_xa90=%s, seed_ppg=%s,
             last_season_points=%s, last_season_minutes=%s,
+            last_season_starts=%s,
             xg_source='fpl_hist'
         WHERE id=%s
-    """, (seed_xg90, seed_xa90, seed_ppg, points, minutes, player_id))
+    """, (seed_xg90, seed_xa90, seed_ppg, points, minutes, starts, player_id))
 
 
 def sync_player_histories(limit: int = None, seed: bool = True):
@@ -916,12 +939,16 @@ def sync_projections() -> int:
     conn = get_conn()
     c = conn.cursor()
     # Reset first so players who dropped out of eligibility go back to NULL.
-    c.execute("UPDATE players SET projected_points = NULL, projected_horizon = NULL")
+    c.execute("""UPDATE players SET projected_points = NULL, projected_horizon = NULL,
+                                    expected_minutes = NULL, start_probability = NULL""")
     for row in projections:
         c.execute(
             "UPDATE players SET projected_points=%s, projected_horizon=%s, "
+            "expected_minutes=%s, start_probability=%s, "
             "projected_updated_at=%s WHERE id=%s",
-            (row["projected_points"], row.get("projected_horizon"), now, row["id"]),
+            (row["projected_points"], row.get("projected_horizon"),
+             row.get("expected_minutes"), row.get("start_probability"),
+             now, row["id"]),
         )
     conn.commit()
     conn.close()

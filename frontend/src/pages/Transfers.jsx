@@ -3,6 +3,7 @@ import { getTransferSuggestions, getHitAnalysis } from '../api'
 import pitchImg from '../assets/fpl_pitch.jpg'
 import { PHOTO } from '../playerPhoto'
 import SquadSource from '../components/SquadSource'
+import { riskMeta } from '../minutesRisk'
 
 
 function XGStats({ player }) {
@@ -31,6 +32,7 @@ function PitchPlayerCard({ player, isBench }) {
   const [imgOk, setImgOk] = useState(true)
   const pts = player.projected_points
   const fixture = player.next_fixture || ''
+  const risk = riskMeta(player.expected_minutes)
   return (
     <div className={`pitch-card${isBench ? ' bench' : ''}`}>
       <div className="pitch-face">
@@ -44,6 +46,16 @@ function PitchPlayerCard({ player, isBench }) {
         <div className="pitch-chips">
           {fixture && <span className="pitch-chip fix">{fixture}</span>}
           {pts != null && <span className="pitch-chip pts">{pts} pts</span>}
+        </div>
+      )}
+      {/* Minutes risk is shown for bench players too: that is precisely where a
+          non-starter is a reasonable choice, and where it is not. */}
+      {risk && risk.label !== 'Nailed' && (
+        <div className="pitch-chips" style={{ marginTop: '2px' }}>
+          <span className="pitch-chip" style={{ color: risk.color, border: `1px solid ${risk.color}` }}
+            title={`${risk.blurb} — about ${Math.round(player.expected_minutes)} mins a game`}>
+            {risk.label}
+          </span>
         </div>
       )}
     </div>
