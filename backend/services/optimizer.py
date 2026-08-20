@@ -380,6 +380,13 @@ def compute_projections(gw_lookback: int = GW_LOOKBACK) -> list[dict]:
         cs_pts = CS_PTS.get(position, 0)
         by_gw = fixtures_by_team.get(team_id, {})
 
+        # A clean sheet only pays if the player is on the pitch for 60 minutes,
+        # so the clean-sheet component has to be gated on minutes too. Without
+        # this a fourth-choice defender banked the full four points off a cameo,
+        # which kept fringe defenders in the optimiser's starting XI even after
+        # their attacking rate had been corrected.
+        cs_eligibility = min(1.0, max(0.0, (exp_minutes - 30.0) / 45.0))
+
         def _match_points(fixture) -> tuple[float, float]:
             """Points for one fixture, plus its clean-sheet probability. FDR
             scales the attacking rate; the clean sheet is scaled by the
@@ -388,7 +395,7 @@ def compute_projections(gw_lookback: int = GW_LOOKBACK) -> list[dict]:
             attack = base_rate * FDR_MULTIPLIERS.get(fdr, 1.0)
             if cs_pts > 0 and opp_id is not None:
                 cs_prob = _clean_sheet_prob(team_id, is_home, opp_id)
-                return attack + cs_prob * cs_pts, cs_prob
+                return attack + cs_prob * cs_pts * cs_eligibility, cs_prob
             return attack, 0.0
 
         next_fixtures = by_gw.get(next_gw, []) if next_gw is not None else []
@@ -428,7 +435,7 @@ def compute_projections(gw_lookback: int = GW_LOOKBACK) -> list[dict]:
         p["_rate_per90"] = round(blended_per90, 3)
         p["_eff_xg90"] = round(eff_xg90, 3)
         p["_eff_xa90"] = round(eff_xa90, 3)
-        p["_mins_factor"] = round(mins_factor, 3)
+        p["_mins_scale"] = round(mins_scale, 3)
 
     return players
 
